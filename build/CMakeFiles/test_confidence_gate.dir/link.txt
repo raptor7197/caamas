@@ -1,0 +1,1 @@
+/usr/bin/c++ -Wl,--dependency-file=CMakeFiles/test_confidence_gate.dir/link.d "CMakeFiles/test_confidence_gate.dir/android/camms-daemon/test/test_confidence_gate.cpp.o" -o test_confidence_gate  libcamms_core.a

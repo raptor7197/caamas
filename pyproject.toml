@@ -1,0 +1,51 @@
+[project]
+name = "camms"
+version = "1.0.0"
+description = "Context-Aware Adaptive Memory Solution for Mobile Agentic Systems"
+authors = [
+    {name = "Gore Pakore", email = "vamsikrishna.p2023@vitstudent.ac.in"},
+]
+requires-python = ">=3.10"
+dependencies = [
+    "tensorflow>=2.13,<2.19",
+    "numpy>=1.24",
+    "pandas>=1.5",
+    "flwr>=1.28",
+    "opacus>=1.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7",
+    "pytest-cov>=4",
+    "black>=23",
+    "ruff>=0.1",
+    "mypy>=1.0",
+]
+simulation = [
+    "ray>=2.5",
+    "torch>=2.0",
+]
+benchmark = [
+    "matplotlib>=3.6",
+    "seaborn>=0.12",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "I", "N", "W"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+[project.scripts]
+camms-train = "training.train_frappe:main"
+camms-export = "training.tflite_export:main"
+camms-benchmark = "training.benchmark:main"
+camms-server = "fl_server.server:main"
+camms-simulate = "fl_server.simulation:main"

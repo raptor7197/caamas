@@ -1,0 +1,1 @@
+/usr/bin/c++ -Wl,--dependency-file=CMakeFiles/cammsd.dir/link.d "CMakeFiles/cammsd.dir/android/camms-daemon/src/camms_daemon.cpp.o" -o cammsd  libcamms_core.a -lpthread
