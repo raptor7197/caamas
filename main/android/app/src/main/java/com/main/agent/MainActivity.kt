@@ -1,12 +1,15 @@
 package com.main.agent
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -18,6 +21,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -60,10 +65,18 @@ class MainActivity : ComponentActivity() {
     private var modelManager: ModelManager? = null
     private var voicePipeline: VoicePipeline? = null
 
+    private val requestPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        modelManager?.updateModelsDir()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        checkStoragePermission()
 
         val app   = application as AgentApp
         val prefs = app.prefs
@@ -101,7 +114,19 @@ class MainActivity : ComponentActivity() {
                         lifecycleScope.launch { prefs.setOnboardingDone(true) }
                         screen = Screen.Loading
                     }
-                    Screen.Loading   -> LoadingScreen("Loading model\u2026")
+                    Screen.Loading   -> {
+                        val mmState by modelManager?.state?.collectAsState() ?: mutableStateOf(ModelManager.State.Idle)
+                        LoadingScreen(
+                            text = when (mmState) {
+                                is ModelManager.State.Downloading -> "Downloading model\u2026"
+                                is ModelManager.State.Verifying   -> "Verifying checksum\u2026"
+                                is ModelManager.State.Loading     -> "Loading into memory\u2026"
+                                is ModelManager.State.Error       -> "Error: ${(mmState as ModelManager.State.Error).message}"
+                                else                             -> "Initializing\u2026"
+                            },
+                            state = mmState
+                        )
+                    }
                     Screen.Chat      -> ChatScreen(
                         viewModel      = chatVm,
                         onOpenSettings = { screen = Screen.Settings },
@@ -164,6 +189,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun checkStoragePermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!Environment.isExternalStorageManager()) {
+                try {
+                    val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                    intent.data = Uri.parse("package:$packageName")
+                    requestPermissionLauncher.launch(intent)
+                    Toast.makeText(this, "Please allow All Files Access to keep models after uninstall", Toast.LENGTH_LONG).show()
+                } catch (e: Exception) {
+                    val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                    requestPermissionLauncher.launch(intent)
+                }
+            }
+        }
+    }
+
     override fun onDestroy() {
         engine.unload()
         voicePipeline?.let { vp ->
@@ -176,17 +217,34 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun LoadingScreen(text: String) {
+private fun LoadingScreen(text: String, state: ModelManager.State = ModelManager.State.Idle) {
     Box(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().padding(32.dp),
         contentAlignment = Alignment.Center,
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            CircularProgressIndicator()
-            Text(text)
+            if (state is ModelManager.State.Downloading) {
+                Text(text, style = MaterialTheme.typography.titleMedium)
+                LinearProgressIndicator(
+                    progress = state.progress,
+                    modifier = Modifier.fillMaxWidth().height(8.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                )
+                val percent = (state.progress * 100).toInt()
+                val downloadedMb = (state.progress * state.bytesTotal) / (1024 * 1024)
+                val totalMb = state.bytesTotal / (1024 * 1024)
+                Text(
+                    text = "$percent% ($downloadedMb MB / $totalMb MB)",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            } else {
+                CircularProgressIndicator()
+                Text(text)
+            }
         }
     }
 }

@@ -22,11 +22,23 @@ data class ChatUiState(
     val error:           String?             = null,
     val awaitingConfirm: ConfirmRequest?     = null,
     val voiceState:      VoicePipeline.State = VoicePipeline.State.Idle,
+    val modelStats:      ModelStats?         = null,
+)
+
+data class ModelStats(
+    val modelName: String,
+    val contextSize: Int,
+    val threads: Int,
+    val hasVulkan: Boolean,
+    val ramUsedMb: Long,
+    val ramTotalMb: Long,
 )
 
 data class ConfirmRequest(val prompt: String, val toolName: String, val argsJson: String)
 
 class ChatViewModel(app: Application) : AndroidViewModel(app) {
+
+    private val application = app
 
     private val db             = AppDatabase.get(app)
     private val sessionManager = SessionManager(db)
@@ -42,10 +54,44 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         get() = _agentCore
         set(value) {
             _agentCore = value
-            if (value != null && _uiState.value.sessionId < 0) {
-                loadOrCreateSession()
+            if (value != null) {
+                if (_uiState.value.sessionId < 0) loadOrCreateSession()
+                startStatsRefresh()
             }
         }
+
+    private var statsJob: Job? = null
+
+    private fun startStatsRefresh() {
+        statsJob?.cancel()
+        statsJob = viewModelScope.launch {
+            while (true) {
+                updateStats()
+                kotlinx.coroutines.delay(5000)
+            }
+        }
+    }
+
+    private fun updateStats() {
+        val core = _agentCore ?: return
+        val cap = core.capability
+        val am = application.getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+        val memInfo = android.app.ActivityManager.MemoryInfo()
+        am.getMemoryInfo(memInfo)
+
+        _uiState.update {
+            it.copy(
+                modelStats = ModelStats(
+                    modelName = cap.maxModelTier.label,
+                    contextSize = cap.recommendedCtx,
+                    threads = cap.recommendedThreads,
+                    hasVulkan = cap.hasVulkan,
+                    ramUsedMb = (memInfo.totalMem - memInfo.availMem) / (1024 * 1024),
+                    ramTotalMb = memInfo.totalMem / (1024 * 1024)
+                )
+            )
+        }
+    }
 
     fun setVoicePipeline(pipeline: VoicePipeline) {
         _voicePipeline = pipeline
