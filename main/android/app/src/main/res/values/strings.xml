@@ -1,0 +1,23 @@
+<resources>
+    <string name="app_name">Agent</string>
+    <string name="onboarding_title">Set up your Agent</string>
+    <string name="onboarding_subtitle">A private AI assistant that runs entirely on your device</string>
+    <string name="permission_mic">Microphone — for voice commands</string>
+    <string name="permission_overlay">Overlay — for the floating assistant button</string>
+    <string name="permission_notifications">Notifications — to keep the assistant running</string>
+    <string name="folder_prompt">Choose a folder for your Agent</string>
+    <string name="folder_desc">Files you place here will be indexed and made available to your assistant</string>
+    <string name="downloading_model">Downloading AI model…</string>
+    <string name="model_ready">Model ready</string>
+    <string name="model_error">Failed to load model</string>
+    <string name="chat_hint">Ask anything…</string>
+    <string name="settings_title">Settings</string>
+    <string name="settings_model">Local Model</string>
+    <string name="settings_cloud">Cloud Fallback</string>
+    <string name="settings_vector_db">Knowledge Base</string>
+    <string name="settings_folder">Agent Folder</string>
+    <string name="channel_overlay_name">Overlay Service</string>
+    <string name="channel_overlay_desc">Keeps the floating assistant button visible</string>
+    <string name="channel_indexing_name">File Indexing</string>
+    <string name="channel_indexing_desc">Background indexing of your agent folder</string>
+</resources>

@@ -1,0 +1,10 @@
+<resources>
+    <style name="Theme.Agent" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+    <style name="Theme.Agent.SplashScreen" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#0F0F0F</item>
+        <item name="postSplashScreenTheme">@style/Theme.Agent</item>
+    </style>
+</resources>

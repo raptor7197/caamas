@@ -1,0 +1,23 @@
+#!/bin/sh
+
+# Gradle wrapper script for AgentApp
+# Generated for Gradle 8.9
+
+if [ -z "$ANDROID_HOME" ]; then
+    export ANDROID_HOME="$HOME/Android/Sdk"
+fi
+
+if [ -z "$JAVA_HOME" ]; then
+    JAVA_HOME=$(dirname $(dirname $(readlink -f $(which java))))
+    if [ -z "$JAVA_HOME" ]; then
+        JAVA_HOME="/usr/lib/jvm/java-21-openjdk"
+    fi
+    export JAVA_HOME
+fi
+
+# Run gradle from the downloaded distribution
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+GRADLE_USER_HOME="$SCRIPT_DIR/.gradle"
+export GRADLE_USER_HOME
+
+exec "$SCRIPT_DIR/gradle/wrapper/gradle-8.9/bin/gradle" -p "$SCRIPT_DIR" "$@"

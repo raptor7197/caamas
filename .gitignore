@@ -1,0 +1,45 @@
+# Android / Kotlin
+*.class
+*.jar
+*.apk
+*.aab
+*.dex
+*.kotlin_module
+build/
+app/build/
+.gradle/
+local.properties
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+dist/
+
+# C / C++
+*.o
+*.so
+*.a
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Model files (large binaries)
+*.gguf
+*.bin
+*.pt
+*.pth
+
+# Logs
+*.log
+
+# Android native build
+.cxx/
