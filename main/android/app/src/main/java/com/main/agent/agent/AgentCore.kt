@@ -35,7 +35,7 @@ Be concise. Respect privacy. Do not hallucinate tool results."""
 class AgentCore(
     private val context:      Context,
     private val engine:       LlamaEngine,
-    private val capability:   DeviceCapability.Info,
+    val capability:           DeviceCapability.Info,
     private val toolRegistry: ToolRegistry,
     private val router:       AgentRouter,
     private val reactLoop:    ReActLoop,

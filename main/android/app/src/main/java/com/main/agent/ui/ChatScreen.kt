@@ -1,6 +1,8 @@
 package com.main.agent.ui
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -39,6 +41,7 @@ fun ChatScreen(
     val listState  = rememberLazyListState()
     val scope      = rememberCoroutineScope()
     var inputText  by remember { mutableStateOf("") }
+    var showStats  by remember { mutableStateOf(false) }
 
     LaunchedEffect(uiState.messages.size, uiState.streamingText) {
         if (uiState.messages.isNotEmpty() || uiState.streamingText.isNotEmpty()) {
@@ -51,17 +54,33 @@ fun ChatScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Agent", color = MaterialTheme.colorScheme.onBackground) },
-                actions = {
-                    IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Default.Settings, "Settings")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
+            Column {
+                TopAppBar(
+                    title = {
+                        Column(modifier = Modifier.clickable { showStats = !showStats }) {
+                            Text("Agent", color = MaterialTheme.colorScheme.onBackground)
+                            Text(
+                                text = if (showStats) "Hide stats \u25b4" else "Show stats \u25be",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = AgentBlue
+                            )
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = onOpenSettings) {
+                            Icon(Icons.Default.Settings, "Settings")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.background,
+                    )
                 )
-            )
+                AnimatedVisibility(visible = showStats) {
+                    uiState.modelStats?.let { stats ->
+                        ModelStatsHeader(stats)
+                    }
+                }
+            }
         },
         containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
@@ -220,6 +239,36 @@ private fun StreamingBubble(text: String) {
         ) {
             Text(text + "\u258C", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
         }
+    }
+}
+
+@Composable
+private fun ModelStatsHeader(stats: ModelStats) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = AgentSurface2,
+        tonalElevation = 2.dp
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                StatItem("Model", stats.modelName)
+                StatItem("Context", "${stats.contextSize}")
+                StatItem("Threads", "${stats.threads}")
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                StatItem("RAM", "${stats.ramUsedMb} / ${stats.ramTotalMb} MB")
+                StatItem("Vulkan", if (stats.hasVulkan) "Yes" else "No")
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatItem(label: String, value: String) {
+    Column {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+        Text(value, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
     }
 }
 
