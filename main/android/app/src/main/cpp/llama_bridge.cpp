@@ -285,12 +285,18 @@ Java_com_main_agent_llm_LlamaEngine_nativeApplyChatTemplate(
     for (int i = 0; i < n_msgs; i++) {
         jstring jrole    = (jstring)env->GetObjectArrayElement(j_messages, i * 2);
         jstring jcontent = (jstring)env->GetObjectArrayElement(j_messages, i * 2 + 1);
-        roles[i]    = env->GetStringUTFChars(jrole,    nullptr);
-        contents[i] = env->GetStringUTFChars(jcontent, nullptr);
+
+        const char* role_str = env->GetStringUTFChars(jrole, nullptr);
+        roles[i] = role_str;
+        env->ReleaseStringUTFChars(jrole, role_str);
+
+        const char* content_str = env->GetStringUTFChars(jcontent, nullptr);
+        contents[i] = content_str;
+        env->ReleaseStringUTFChars(jcontent, content_str);
+
         msgs[i].role    = roles[i].c_str();
         msgs[i].content = contents[i].c_str();
-        env->ReleaseStringUTFChars(jrole,    roles[i].c_str());
-        env->ReleaseStringUTFChars(jcontent, contents[i].c_str());
+
         env->DeleteLocalRef(jrole);
         env->DeleteLocalRef(jcontent);
     }
