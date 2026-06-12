@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -227,7 +229,7 @@ private fun LoadingScreen(text: String, state: ModelManager.State = ModelManager
             if (state is ModelManager.State.Downloading) {
                 Text(text, style = MaterialTheme.typography.titleMedium)
                 LinearProgressIndicator(
-                    progress = { state.progress },
+                    progress = state.progress,
                     modifier = Modifier.fillMaxWidth().height(8.dp),
                     color = MaterialTheme.colorScheme.primary,
                     trackColor = MaterialTheme.colorScheme.surfaceVariant,
