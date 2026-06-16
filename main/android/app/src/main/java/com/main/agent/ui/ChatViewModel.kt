@@ -9,10 +9,8 @@ import com.main.agent.persistence.AppDatabase
 import com.main.agent.persistence.entities.MessageEntity
 import com.main.agent.voice.VoicePipeline
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeout
 
 data class ChatUiState(
     val messages:        List<MessageEntity> = emptyList(),
@@ -143,18 +141,14 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
             val sb = StringBuilder()
             try {
-                withTimeout(120_000L) {
-                    core.respond(trimmed, history).collect { token ->
-                        sb.append(token)
-                        _uiState.update { it.copy(streamingText = sb.toString()) }
-                    }
+                core.respond(trimmed, history).collect { token ->
+                    sb.append(token)
+                    _uiState.update { it.copy(streamingText = sb.toString()) }
                 }
                 val full = sb.toString()
                 if (full.isNotBlank()) {
                     sessionManager.saveMessage(sessionId, "assistant", full)
                 }
-            } catch (_: TimeoutCancellationException) {
-                _uiState.update { it.copy(error = "Generation timed out after 2 minutes") }
             } catch (e: Exception) {
                 _uiState.update { it.copy(error = "Generation error: ${e.message}") }
             } finally {
