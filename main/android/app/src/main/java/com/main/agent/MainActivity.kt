@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -27,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
@@ -94,8 +96,12 @@ class MainActivity : ComponentActivity() {
 
                 LaunchedEffect(screen) {
                     if (screen == Screen.Loading) {
-                        loadModel(cap, settings, app)
-                        screen = Screen.Chat
+                        if (needsStoragePermission()) {
+                            screen = Screen.StoragePermission
+                        } else {
+                            loadModel(cap, settings, app)
+                            screen = Screen.Chat
+                        }
                     }
                 }
 
@@ -127,6 +133,9 @@ class MainActivity : ComponentActivity() {
                             state = mmState
                         )
                     }
+                    Screen.StoragePermission -> StoragePermissionScreen(
+                        onGranted = { screen = Screen.Loading },
+                    )
                     Screen.Chat      -> ChatScreen(
                         viewModel      = chatVm,
                         onOpenSettings = { screen = Screen.Settings },
@@ -135,6 +144,17 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private fun needsStoragePermission(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false
+        if (Environment.isExternalStorageManager()) return false
+        // Check if we can write to the default models directory
+        val dir = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+            "caamas/models",
+        )
+        return !dir.canWrite()
     }
 
     private suspend fun loadModel(
@@ -213,7 +233,7 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
-    private enum class Screen { Splash, Onboarding, Loading, Chat, Settings }
+    private enum class Screen { Splash, Onboarding, Loading, StoragePermission, Chat, Settings }
 }
 
 @Composable
@@ -244,6 +264,38 @@ private fun LoadingScreen(text: String, state: ModelManager.State = ModelManager
             } else {
                 CircularProgressIndicator()
                 Text(text)
+            }
+        }
+    }
+}
+
+@Composable
+private fun StoragePermissionScreen(onGranted: () -> Unit) {
+    val ctx = LocalContext.current
+    Box(
+        modifier = Modifier.fillMaxSize().padding(32.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text("Storage permission required")
+            Text(
+                text = "Models are stored in Downloads/caamas/ to survive app reinstalls. " +
+                       "Enable 'Allow access to manage all files' in system settings.",
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Button(onClick = {
+                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                    data = Uri.parse("package:${ctx.packageName}")
+                }
+                ctx.startActivity(intent)
+            }) {
+                Text("Open Settings")
+            }
+            Button(onClick = onGranted) {
+                Text("I've enabled it — continue")
             }
         }
     }

@@ -38,14 +38,11 @@ target_include_directories(agent_native PRIVATE
     ${LLAMA_DIR}/include
     ${LLAMA_DIR}/ggml/include
     ${WHISPER_DIR}/include
-    ${WHISPER_DIR}/ggml/include
 )
 
 target_link_libraries(agent_native
     llama
     whisper
-    ggml
-    ggml-base
     android
     log
 )

@@ -42,15 +42,15 @@ object DeviceCapability {
 
         // Infer Vulkan: Mali-G610 (Dimensity 7200) supports it; Mali-G52 does not.
         // We use a conservative heuristic: TIER_HIGH on Android 12 + Adreno/Mali-G6xx
-        val hasVulkan = tier == Tier.HIGH && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+        val hasVulkan = false // Mali-G610 Vulkan backend causes ggml crashes; disable for now
 
         // Context window: HIGH=4096, LOW=2048 to avoid OOM
-        val nCtx = if (tier == Tier.HIGH) 4096 else 2048
+        val nCtx = 2048 // reduced to avoid OOM
 
         // Use half the cores for inference threads to leave room for UI thread
         val nThreads = maxOf(2, cores / 2)
 
-        val modelTier = if (tier == Tier.HIGH) ModelTier.LARGE else ModelTier.SMALL
+        val modelTier = ModelTier.SMALL // force small model for now; large 4.9 GB causes OOM
 
         return Info(
             tier              = tier,

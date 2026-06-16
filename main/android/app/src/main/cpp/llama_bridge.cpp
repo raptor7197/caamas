@@ -125,6 +125,9 @@ Java_com_main_agent_llm_LlamaEngine_nativeInfer(
 
     h->cancel.store(false);
 
+    // ── Clear KV cache from previous inference ───────────────────────────────
+    llama_memory_clear(llama_get_memory(h->ctx), true);
+
     // ── Build prompt string ──────────────────────────────────────────────────
     const char* prompt_cstr = env->GetStringUTFChars(j_prompt, nullptr);
     std::string prompt(prompt_cstr);
@@ -268,6 +271,11 @@ Java_com_main_agent_llm_LlamaEngine_nativeGetVocabSize(
 // ─── nativeApplyChatTemplate ──────────────────────────────────────────────────
 // Formats a messages array through the model's built-in chat template.
 // j_messages: String[] alternating ["role","content","role","content"...]
+//
+// Uses the correct template for each model family based on vocabulary size:
+//   Llama 3.1  (n_vocab == 128256) → <|begin_of_text|>role\ncontent\n...
+//   Gemma 2    (n_vocab == 256000) → <bos>role\ncontent\n...
+//   Default                         → simple "role:\ncontent\n\n"
 extern "C"
 JNIEXPORT jstring JNICALL
 Java_com_main_agent_llm_LlamaEngine_nativeApplyChatTemplate(
@@ -279,59 +287,79 @@ Java_com_main_agent_llm_LlamaEngine_nativeApplyChatTemplate(
     int n_msgs = env->GetArrayLength(j_messages) / 2;
     if (n_msgs <= 0) return env->NewStringUTF("");
 
-    std::vector<llama_chat_message> msgs(n_msgs);
-    std::vector<std::string> roles(n_msgs), contents(n_msgs);
+    // Determine model family
+    bool is_llama  = (h->n_vocab == 128256);
+    bool is_gemma  = (h->n_vocab == 256000);
 
+    std::string prompt;
     for (int i = 0; i < n_msgs; i++) {
         jstring jrole    = (jstring)env->GetObjectArrayElement(j_messages, i * 2);
         jstring jcontent = (jstring)env->GetObjectArrayElement(j_messages, i * 2 + 1);
 
-        const char* role_str = env->GetStringUTFChars(jrole, nullptr);
-        roles[i] = role_str;
-        env->ReleaseStringUTFChars(jrole, role_str);
+        if (!jrole || !jcontent) {
+            env->DeleteLocalRef(jrole);
+            env->DeleteLocalRef(jcontent);
+            continue;
+        }
 
+        const char* role_str    = env->GetStringUTFChars(jrole, nullptr);
         const char* content_str = env->GetStringUTFChars(jcontent, nullptr);
-        contents[i] = content_str;
+
+        if (is_gemma) {
+            // Gemma 2 format
+            if (i == 0) prompt += "<bos>";
+            if (strcmp(role_str, "system") == 0) {
+                prompt += "<start_of_turn>user\n";
+                prompt += content_str;
+                prompt += "<end_of_turn>\n";
+            } else if (strcmp(role_str, "user") == 0) {
+                prompt += "<start_of_turn>user\n";
+                prompt += content_str;
+                prompt += "<end_of_turn>\n";
+            } else if (strcmp(role_str, "assistant") == 0) {
+                prompt += "<start_of_turn>model\n";
+                prompt += content_str;
+                prompt += "<end_of_turn>\n";
+            }
+        } else if (is_llama) {
+            // Llama 3.1 format
+            if (i == 0 && strcmp(role_str, "system") == 0) {
+                prompt += "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n";
+                prompt += content_str;
+                prompt += "<|eot_id|>";
+            } else if (strcmp(role_str, "user") == 0) {
+                prompt += "<|start_header_id|>user<|end_header_id|>\n\n";
+                prompt += content_str;
+                prompt += "<|eot_id|>";
+            } else if (strcmp(role_str, "assistant") == 0) {
+                prompt += "<|start_header_id|>assistant<|end_header_id|>\n\n";
+                prompt += content_str;
+                prompt += "<|eot_id|>";
+            }
+        } else {
+            // Generic fallback
+            if (i == 0) prompt = "";
+            prompt += role_str;
+            prompt += ":\n";
+            prompt += content_str;
+            prompt += "\n\n";
+        }
+
+        env->ReleaseStringUTFChars(jrole,    role_str);
         env->ReleaseStringUTFChars(jcontent, content_str);
-
-        msgs[i].role    = roles[i].c_str();
-        msgs[i].content = contents[i].c_str();
-
         env->DeleteLocalRef(jrole);
         env->DeleteLocalRef(jcontent);
     }
 
-    // Get the model's built-in template name; fallback to "chatml"
-    const char* model_tmpl = llama_model_chat_template(h->model, nullptr);
-    if (!model_tmpl || !model_tmpl[0]) {
-        model_tmpl = "chatml";
+    if (add_ass) {
+        if (is_gemma) {
+            prompt += "<start_of_turn>model\n";
+        } else if (is_llama) {
+            prompt += "<|start_header_id|>assistant<|end_header_id|>\n\n";
+        } else {
+            prompt += "assistant:\n";
+        }
     }
 
-    // First call to get required buffer size
-    std::vector<char> buf(512);
-    int n = llama_chat_apply_template(
-        model_tmpl,
-        msgs.data(), msgs.size(),
-        (bool)add_ass,
-        nullptr, 0);
-
-    if (n < 0) {
-        LOGE("llama_chat_apply_template failed (n=%d)  tmpl=%s", n, model_tmpl);
-        return env->NewStringUTF("");
-    }
-
-    buf.resize(n + 1);
-    n = llama_chat_apply_template(
-        model_tmpl,
-        msgs.data(), msgs.size(),
-        (bool)add_ass,
-        buf.data(), (int32_t)buf.size());
-
-    if (n < 0) {
-        LOGE("llama_chat_apply_template resize failed (n=%d)", n);
-        return env->NewStringUTF("");
-    }
-
-    buf[n] = '\0';
-    return env->NewStringUTF(buf.data());
+    return env->NewStringUTF(prompt.c_str());
 }

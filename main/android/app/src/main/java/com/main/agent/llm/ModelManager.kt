@@ -36,7 +36,19 @@ class ModelManager(
         private set
 
     init {
-        updateModelsDir()
+        val externalDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val defaultDir = File(externalDir, "caamas/models")
+        val canWriteExternal = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            Environment.isExternalStorageManager()
+        } else {
+            defaultDir.canWrite() || defaultDir.mkdirs()
+        }
+        modelsDir = if (canWriteExternal) {
+            defaultDir.also { it.mkdirs() }
+        } else {
+            File(context.filesDir, "models").also { it.mkdirs() }
+        }
+        Log.i(TAG, "Models dir set to: ${modelsDir.absolutePath}")
     }
 
     fun updateModelsDir() {
