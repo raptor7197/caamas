@@ -38,7 +38,11 @@ class GeminiProvider(
             putJsonArray("contents") {
                 chatMsgs.forEach { (role, content) ->
                     addJsonObject {
-                        put("role", if (role == "assistant") "model" else role)
+                        put("role", when (role) {
+                            "assistant" -> "model"
+                            "tool" -> "user"
+                            else -> role
+                        })
                         putJsonArray("parts") {
                             addJsonObject { put("text", content) }
                         }
@@ -92,8 +96,21 @@ class GeminiProvider(
                             ?.get("parts")?.jsonArray
                             ?.firstOrNull()?.jsonObject
                             ?.get("text")?.jsonPrimitive?.contentOrNull
-                        text?.let { trySend(it) }
-                    } catch (_: Exception) {}
+                        if (text != null) {
+                            trySend(text)
+                        } else {
+                            json["promptFeedback"]?.jsonObject?.let { pf ->
+                                val reason = pf["blockReason"]?.jsonPrimitive?.contentOrNull
+                                if (reason != null) {
+                                    val err = "Blocked: $reason"
+                                    Log.e(TAG, err)
+                                    close(IOException(err))
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "SSE parse error: ${e.message}")
+                    }
                 }
             }
         }
