@@ -37,9 +37,15 @@ class AgentCore(
     private val engine:       LlamaEngine,
     val capability:           DeviceCapability.Info,
     private val toolRegistry: ToolRegistry,
-    private val router:       AgentRouter,
+    val router:               AgentRouter,
     private val reactLoop:    ReActLoop,
 ) {
+
+    val availableRoutes: List<Route> get() = buildList {
+        add(Route.LocalSmall)
+        add(Route.LocalLarge)
+        router.configuredCloudRoute?.let { add(it) }
+    }
 
     /**
      * Process a user message and stream the agent's response.
@@ -52,6 +58,7 @@ class AgentCore(
     fun respond(
         userMessage: String,
         history: List<Pair<String, String>> = emptyList(),
+        overrideRoute: Route? = null,
     ): Flow<String> = flow {
         Log.d(TAG, "Processing: ${userMessage.take(80)}")
 
@@ -64,8 +71,8 @@ class AgentCore(
             add("user"      to userMessage)
         }
 
-        // 2. Route: decide which model backbone to use
-        val route = router.route(userMessage, history.size, capability)
+        // 2. Route: use override if provided, otherwise auto-route
+        val route = overrideRoute ?: router.route(userMessage, history.size, capability)
         Log.d(TAG, "Route: $route")
 
         // 3. Run ReAct loop — emits streaming tokens

@@ -18,8 +18,9 @@ class UserPreferences(context: Context) {
         val openAIKey:       String = "",
         val anthropicKey:    String = "",
         val mistralKey:      String = "",
+        val geminiKey:       String = "",
         val ollamaUrl:       String = "http://192.168.1.100:11434",
-        val cloudProvider:   String = "",   // "openai"|"anthropic"|"mistral"|"ollama"|""
+        val cloudProvider:   String = "",   // "openai"|"anthropic"|"mistral"|"gemini"|"ollama"|""
         val chunkSize:       Int    = 512,
         val chunkOverlapPct: Int    = 10,
         val onboardingDone:  Boolean = false,
@@ -31,6 +32,7 @@ class UserPreferences(context: Context) {
             openAIKey       = p[Keys.OPENAI_KEY]     ?: "",
             anthropicKey    = p[Keys.ANTHROPIC_KEY]  ?: "",
             mistralKey      = p[Keys.MISTRAL_KEY]    ?: "",
+            geminiKey       = p[Keys.GEMINI_KEY]     ?: "",
             ollamaUrl       = p[Keys.OLLAMA_URL]     ?: "http://192.168.1.100:11434",
             cloudProvider   = p[Keys.CLOUD_PROVIDER] ?: "",
             chunkSize       = p[Keys.CHUNK_SIZE]     ?: 512,
@@ -43,6 +45,7 @@ class UserPreferences(context: Context) {
     suspend fun setOpenAIKey(key: String)        = ds.edit { it[Keys.OPENAI_KEY]     = key }
     suspend fun setAnthropicKey(key: String)     = ds.edit { it[Keys.ANTHROPIC_KEY]  = key }
     suspend fun setMistralKey(key: String)       = ds.edit { it[Keys.MISTRAL_KEY]    = key }
+    suspend fun setGeminiKey(key: String)        = ds.edit { it[Keys.GEMINI_KEY]     = key }
     suspend fun setOllamaUrl(url: String)        = ds.edit { it[Keys.OLLAMA_URL]     = url }
     suspend fun setCloudProvider(p: String)      = ds.edit { it[Keys.CLOUD_PROVIDER] = p }
     suspend fun setChunkSize(n: Int)             = ds.edit { it[Keys.CHUNK_SIZE]     = n }
@@ -54,6 +57,7 @@ class UserPreferences(context: Context) {
         val OPENAI_KEY     = stringPreferencesKey("openai_key")
         val ANTHROPIC_KEY  = stringPreferencesKey("anthropic_key")
         val MISTRAL_KEY    = stringPreferencesKey("mistral_key")
+        val GEMINI_KEY     = stringPreferencesKey("gemini_key")
         val OLLAMA_URL     = stringPreferencesKey("ollama_url")
         val CLOUD_PROVIDER = stringPreferencesKey("cloud_provider")
         val CHUNK_SIZE     = intPreferencesKey("chunk_size")

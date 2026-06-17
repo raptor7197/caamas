@@ -6,6 +6,7 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -44,6 +45,7 @@ fun SettingsScreen(
     var showOpenAIKey    by remember { mutableStateOf(false) }
     var showAnthropicKey by remember { mutableStateOf(false) }
     var showMistralKey   by remember { mutableStateOf(false) }
+    var showGeminiKey    by remember { mutableStateOf(false) }
 
     val folderPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -106,6 +108,40 @@ fun SettingsScreen(
                     fontSize = 12.sp,
                     color    = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                 )
+                Spacer(Modifier.height(8.dp))
+                var providerExpanded by remember { mutableStateOf(false) }
+                val providers = listOf(
+                    "" to "None",
+                    "openai" to "OpenAI",
+                    "anthropic" to "Anthropic",
+                    "mistral" to "Mistral",
+                    "gemini" to "Gemini",
+                    "ollama" to "Ollama",
+                )
+                val currentLabel = providers.find { it.first == settings.cloudProvider }?.second ?: "None"
+                Box {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { providerExpanded = true },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Default provider: $currentLabel", modifier = Modifier.weight(1f))
+                        Icon(Icons.Default.ArrowDropDown, null)
+                    }
+                    DropdownMenu(
+                        expanded = providerExpanded,
+                        onDismissRequest = { providerExpanded = false },
+                    ) {
+                        providers.forEach { (value, label) ->
+                            DropdownMenuItem(
+                                text = { Text(label) },
+                                onClick = {
+                                    scope.launch { prefs.setCloudProvider(value) }
+                                    providerExpanded = false
+                                },
+                            )
+                        }
+                    }
+                }
                 Spacer(Modifier.height(4.dp))
                 ApiKeyField("OpenAI API key", settings.openAIKey, showOpenAIKey,
                     onToggle = { showOpenAIKey = !showOpenAIKey },
@@ -116,6 +152,9 @@ fun SettingsScreen(
                 ApiKeyField("Mistral API key", settings.mistralKey, showMistralKey,
                     onToggle = { showMistralKey = !showMistralKey },
                     onSave   = { scope.launch { prefs.setMistralKey(it) } })
+                ApiKeyField("Gemini API key", settings.geminiKey, showGeminiKey,
+                    onToggle = { showGeminiKey = !showGeminiKey },
+                    onSave   = { scope.launch { prefs.setGeminiKey(it) } })
                 var ollamaUrl by remember { mutableStateOf(settings.ollamaUrl) }
                 OutlinedTextField(
                     value         = ollamaUrl,

@@ -42,6 +42,7 @@ import com.main.agent.llm.LlamaEngine
 import com.main.agent.llm.ModelManager
 import com.main.agent.llm.cloud.AnthropicProvider
 import com.main.agent.llm.cloud.MistralProvider
+import com.main.agent.llm.cloud.GeminiProvider
 import com.main.agent.llm.cloud.OllamaProvider
 import com.main.agent.llm.cloud.OpenAIProvider
 import com.main.agent.preferences.UserPreferences
@@ -170,6 +171,7 @@ class MainActivity : ComponentActivity() {
             "openai"    -> if (settings.openAIKey.isNotBlank())    OpenAIProvider(settings.openAIKey)    else null
             "anthropic" -> if (settings.anthropicKey.isNotBlank()) AnthropicProvider(settings.anthropicKey) else null
             "mistral"   -> if (settings.mistralKey.isNotBlank())   MistralProvider(settings.mistralKey)  else null
+            "gemini"    -> if (settings.geminiKey.isNotBlank())    GeminiProvider(settings.geminiKey)    else null
             "ollama"    -> if (settings.ollamaUrl.isNotBlank())    OllamaProvider(settings.ollamaUrl)    else null
             else        -> null
         }

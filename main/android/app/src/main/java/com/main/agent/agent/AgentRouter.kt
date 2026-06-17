@@ -22,7 +22,10 @@ sealed class Route {
  * 3. Multi-step, complex, or tool-heavy → LocalLarge (if TIER_HIGH).
  * 4. Cloud configured + (complexity score > 0.8 OR device is TIER_LOW) → Cloud.
  */
-class AgentRouter(private val cloudProvider: CloudProvider? = null) {
+class AgentRouter(val cloudProvider: CloudProvider? = null) {
+
+    val configuredCloudRoute: Route? get() =
+        if (cloudProvider != null && cloudProvider.isConfigured) Route.Cloud(cloudProvider) else null
 
     fun route(
         query:      String,

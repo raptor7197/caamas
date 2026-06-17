@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.main.agent.agent.AgentCore
+import com.main.agent.agent.Route
 import com.main.agent.agent.SessionManager
 import com.main.agent.persistence.AppDatabase
 import com.main.agent.persistence.entities.MessageEntity
@@ -21,6 +22,9 @@ data class ChatUiState(
     val awaitingConfirm: ConfirmRequest?     = null,
     val voiceState:      VoicePipeline.State = VoicePipeline.State.Idle,
     val modelStats:      ModelStats?         = null,
+    val selectedRoute:   Route?              = null,
+    val cpuLoad:         Float               = 0f,
+    val availableRoutes: List<Route>         = emptyList(),
 )
 
 data class ModelStats(
@@ -47,6 +51,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private var generateJob: Job? = null
     private var _voicePipeline: VoicePipeline? = null
 
+    private var prevCpuTotal = 0L
+    private var prevCpuIdle  = 0L
+
     private var _agentCore: AgentCore? = null
     var agentCore: AgentCore?
         get() = _agentCore
@@ -54,6 +61,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             _agentCore = value
             if (value != null) {
                 if (_uiState.value.sessionId < 0) loadOrCreateSession()
+                _uiState.update { it.copy(availableRoutes = value.availableRoutes) }
                 startStatsRefresh()
             }
         }
@@ -65,7 +73,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         statsJob = viewModelScope.launch {
             while (true) {
                 updateStats()
-                kotlinx.coroutines.delay(5000)
+                kotlinx.coroutines.delay(2000)
             }
         }
     }
@@ -86,7 +94,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     hasVulkan = cap.hasVulkan,
                     ramUsedMb = (memInfo.totalMem - memInfo.availMem) / (1024 * 1024),
                     ramTotalMb = memInfo.totalMem / (1024 * 1024)
-                )
+                ),
+                cpuLoad = readCpuLoad(),
             )
         }
     }
@@ -141,7 +150,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
             val sb = StringBuilder()
             try {
-                core.respond(trimmed, history).collect { token ->
+                core.respond(trimmed, history, overrideRoute = _uiState.value.selectedRoute).collect { token ->
                     sb.append(token)
                     _uiState.update { it.copy(streamingText = sb.toString()) }
                 }
@@ -172,4 +181,35 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun clearError() = _uiState.update { it.copy(error = null) }
+
+    fun getRouteLabel(route: Route?): String = when (route) {
+        null -> "Auto"
+        Route.LocalSmall -> "Small (Local)"
+        Route.LocalLarge -> "Large (Local)"
+        is Route.Cloud -> route.provider.name
+    }
+
+    fun setSelectedRoute(route: Route?) {
+        _uiState.update { it.copy(selectedRoute = route) }
+    }
+
+    private fun readCpuLoad(): Float {
+        return try {
+            val lines = java.io.File("/proc/stat").readLines()
+            val cpuLine = lines.firstOrNull { it.startsWith("cpu ") } ?: return 0f
+            val parts = cpuLine.split("\\s+".toRegex()).drop(1).mapNotNull { it.toLongOrNull() }
+            if (parts.size < 8) return 0f
+            val idle = parts[3] + parts[4]
+            val total = parts.sum()
+            val prevTotal = prevCpuTotal
+            val prevIdle = prevCpuIdle
+            prevCpuTotal = total
+            prevCpuIdle = idle
+            if (prevTotal == 0L) return 0f
+            val totalDelta = total - prevTotal
+            val idleDelta = idle - prevIdle
+            if (totalDelta <= 0L) return 0f
+            (1.0f - idleDelta.toFloat() / totalDelta.toFloat()) * 100f
+        } catch (_: Exception) { 0f }
+    }
 }

@@ -12,6 +12,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
@@ -24,6 +25,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.main.agent.agent.Route
 import com.main.agent.persistence.entities.MessageEntity
 import com.main.agent.ui.theme.AgentSurface2
 import com.main.agent.ui.theme.AgentBlue
@@ -57,12 +59,47 @@ fun ChatScreen(
             Column {
                 TopAppBar(
                     title = {
-                        Column(modifier = Modifier.clickable { showStats = !showStats }) {
-                            Text("Agent", color = MaterialTheme.colorScheme.onBackground)
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                var expanded by remember { mutableStateOf(false) }
+                                TextButton(onClick = { expanded = true }) {
+                                    Text(
+                                        viewModel.getRouteLabel(uiState.selectedRoute),
+                                        color = MaterialTheme.colorScheme.onBackground,
+                                    )
+                                    Icon(Icons.Default.ArrowDropDown, "Select model")
+                                }
+                                DropdownMenu(
+                                    expanded = expanded,
+                                    onDismissRequest = { expanded = false },
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Auto") },
+                                        onClick = { viewModel.setSelectedRoute(null); expanded = false },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Small (Local)") },
+                                        onClick = { viewModel.setSelectedRoute(Route.LocalSmall); expanded = false },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Large (Local)") },
+                                        onClick = { viewModel.setSelectedRoute(Route.LocalLarge); expanded = false },
+                                    )
+                                    uiState.availableRoutes.forEach { route ->
+                                        if (route is Route.Cloud) {
+                                            DropdownMenuItem(
+                                                text = { Text(route.provider.name) },
+                                                onClick = { viewModel.setSelectedRoute(route); expanded = false },
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                             Text(
+                                modifier = Modifier.clickable { showStats = !showStats },
                                 text = if (showStats) "Hide stats \u25b4" else "Show stats \u25be",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = AgentBlue
+                                color = AgentBlue,
                             )
                         }
                     },
@@ -77,7 +114,7 @@ fun ChatScreen(
                 )
                 AnimatedVisibility(visible = showStats) {
                     uiState.modelStats?.let { stats ->
-                        ModelStatsHeader(stats)
+                        ModelStatsHeader(stats = stats, cpuLoad = uiState.cpuLoad)
                     }
                 }
             }
@@ -243,7 +280,7 @@ private fun StreamingBubble(text: String) {
 }
 
 @Composable
-private fun ModelStatsHeader(stats: ModelStats) {
+private fun ModelStatsHeader(stats: ModelStats, cpuLoad: Float) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = AgentSurface2,
@@ -258,6 +295,7 @@ private fun ModelStatsHeader(stats: ModelStats) {
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 StatItem("RAM", "${stats.ramUsedMb} / ${stats.ramTotalMb} MB")
+                StatItem("CPU", "%.0f%%".format(cpuLoad))
                 StatItem("Vulkan", if (stats.hasVulkan) "Yes" else "No")
             }
         }
