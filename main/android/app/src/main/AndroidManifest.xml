@@ -84,6 +84,12 @@
             </intent-filter>
         </activity>
 
+        <!-- ── Screenshot Capture Activity ────────────────────────────────── -->
+        <activity
+            android:name=".tools.system.ScreenshotCaptureActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <!-- ── Overlay ForegroundService ─────────────────────────────────── -->
         <service
             android:name=".overlay.OverlayService"
