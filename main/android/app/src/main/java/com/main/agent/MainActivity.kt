@@ -115,6 +115,22 @@ class MainActivity : ComponentActivity() {
                     voicePipeline?.let { chatVm.setVoicePipeline(it) }
                 }
 
+                // Re-evaluate cloud provider when returning from Settings
+                LaunchedEffect(screen, settings) {
+                    if (screen == Screen.Chat && agentCore != null) {
+                        val cloud = when (settings.cloudProvider) {
+                            "openai"    -> if (settings.openAIKey.isNotBlank())    OpenAIProvider(settings.openAIKey)    else null
+                            "anthropic" -> if (settings.anthropicKey.isNotBlank()) AnthropicProvider(settings.anthropicKey) else null
+                            "mistral"   -> if (settings.mistralKey.isNotBlank())   MistralProvider(settings.mistralKey)  else null
+                            "gemini"    -> if (settings.geminiKey.isNotBlank())    GeminiProvider(settings.geminiKey)    else null
+                            "ollama"    -> if (settings.ollamaUrl.isNotBlank())    OllamaProvider(settings.ollamaUrl)    else null
+                            else        -> null
+                        }
+                        agentCore?.router?.updateCloudProvider(cloud)
+                        chatVm.refreshRoutes()
+                    }
+                }
+
                 when (screen) {
                     Screen.Splash    -> LoadingScreen("Starting\u2026")
                     Screen.Onboarding -> OnboardingScreen {

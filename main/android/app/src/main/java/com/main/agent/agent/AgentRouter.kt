@@ -22,32 +22,36 @@ sealed class Route {
  * 3. Multi-step, complex, or tool-heavy → LocalLarge (if TIER_HIGH).
  * 4. Cloud configured + (complexity score > 0.8 OR device is TIER_LOW) → Cloud.
  */
-class AgentRouter(val cloudProvider: CloudProvider? = null) {
+class AgentRouter(cloudProvider: CloudProvider? = null) {
+
+    private var _cloudProvider: CloudProvider? = cloudProvider
+    val cloudProvider get() = _cloudProvider
+
+    fun updateCloudProvider(provider: CloudProvider?) {
+        _cloudProvider = provider
+    }
 
     val configuredCloudRoute: Route? get() =
-        if (cloudProvider != null && cloudProvider.isConfigured) Route.Cloud(cloudProvider) else null
+        if (_cloudProvider != null && _cloudProvider!!.isConfigured) Route.Cloud(_cloudProvider!!) else null
 
     fun route(
         query:      String,
         historyLen: Int,
         capability: DeviceCapability.Info,
     ): Route {
+        val cp = cloudProvider
+
         // Always cloud for TIER_LOW if configured
         if (capability.tier == DeviceCapability.Tier.LOW) {
-            return if (cloudProvider != null && cloudProvider.isConfigured)
-                Route.Cloud(cloudProvider)
-            else Route.LocalSmall
+            return if (cp != null && cp.isConfigured) Route.Cloud(cp) else Route.LocalSmall
         }
 
         val score = complexityScore(query, historyLen)
 
         return when {
-            score >= 0.8f && cloudProvider != null && cloudProvider.isConfigured ->
-                Route.Cloud(cloudProvider)
-            score >= 0.4f ->
-                Route.LocalLarge
-            else ->
-                Route.LocalSmall
+            score >= 0.8f && cp != null && cp.isConfigured -> Route.Cloud(cp)
+            score >= 0.4f -> Route.LocalLarge
+            else -> Route.LocalSmall
         }
     }
 

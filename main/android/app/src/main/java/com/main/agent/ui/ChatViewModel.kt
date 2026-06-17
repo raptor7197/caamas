@@ -189,6 +189,12 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         is Route.Cloud -> route.provider.name
     }
 
+    fun refreshRoutes() {
+        _agentCore?.let { core ->
+            _uiState.update { it.copy(availableRoutes = core.availableRoutes) }
+        }
+    }
+
     fun setSelectedRoute(route: Route?) {
         _uiState.update { it.copy(selectedRoute = route) }
     }
