@@ -85,6 +85,16 @@ class MainActivity : ComponentActivity() {
         val prefs = app.prefs
         val cap   = DeviceCapability.detect(this)
 
+        // Accept gemini_key via adb: am start -n ... --es gemini_key "AIza..."
+        intent.getStringExtra("gemini_key")?.takeIf { it.isNotBlank() }?.let { key ->
+            kotlinx.coroutines.runBlocking { prefs.setGeminiKey(key) }
+        }
+
+        // Accept cloud_provider via adb: --es cloud_provider "gemini"
+        intent.getStringExtra("cloud_provider")?.takeIf { it.isNotBlank() }?.let { provider ->
+            kotlinx.coroutines.runBlocking { prefs.setCloudProvider(provider) }
+        }
+
         setContent {
             AgentTheme {
                 val settings by prefs.settingsFlow.collectAsState(initial = UserPreferences.Settings())
