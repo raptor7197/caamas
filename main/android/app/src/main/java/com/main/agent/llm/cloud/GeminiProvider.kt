@@ -17,7 +17,7 @@ private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta/m
 
 class GeminiProvider(
     private val apiKey: String,
-    val model: String = "gemini-2.0-flash",
+    val model: String = "gemini-2.5-flash",
 ) : CloudProvider {
 
     override val name = "Gemini ($model)"
