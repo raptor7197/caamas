@@ -5,7 +5,7 @@ import com.main.agent.llm.cloud.CloudProvider
 
 /** Which inference backend to use for a given request. */
 sealed class Route {
-    /** Local small model (Gemma 2 2B). */
+    /** Local small model (Qwen 2.5 1.5B). */
     object LocalSmall : Route()
     /** Local large model (Llama 3.1 8B). */
     object LocalLarge : Route()

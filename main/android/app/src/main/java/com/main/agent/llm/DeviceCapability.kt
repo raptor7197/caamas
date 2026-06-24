@@ -26,7 +26,7 @@ object DeviceCapability {
     )
 
     enum class ModelTier(val label: String) {
-        SMALL("Gemma 2 2B"),
+        SMALL("Qwen 2.5 1.5B"),
         LARGE("Llama 3.1 8B"),
     }
 

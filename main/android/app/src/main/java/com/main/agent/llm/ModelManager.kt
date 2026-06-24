@@ -84,7 +84,7 @@ class ModelManager(
     val targetModel: ModelSpec
         get() = when (capability.maxModelTier) {
             DeviceCapability.ModelTier.LARGE -> ModelSpec.LLAMA_3_1_8B
-            DeviceCapability.ModelTier.SMALL -> ModelSpec.GEMMA_2_2B
+            DeviceCapability.ModelTier.SMALL -> ModelSpec.QWEN_2_5_1_5B
         }
 
     suspend fun ensureReady(): Boolean {
@@ -187,6 +187,14 @@ class ModelManager(
                 downloadUrl = "https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF/resolve/main/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
                 sha256 = "",
                 sizeBytes = 4_920_000_000L,
+            )
+
+            val QWEN_2_5_1_5B = ModelSpec(
+                name = "Qwen 2.5 1.5B Instruct Q4_K_M",
+                filename = "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf",
+                downloadUrl = "https://huggingface.co/bartowski/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf",
+                sha256 = "",
+                sizeBytes = 986_000_000L,
             )
 
             val GEMMA_2_2B = ModelSpec(
