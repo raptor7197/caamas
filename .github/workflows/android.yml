@@ -1,0 +1,88 @@
+name: Android CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK 27.2.12479018
+        run: echo "y" | sdkmanager "ndk;27.2.12479018"
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('main/android/**/*.gradle.kts', 'main/android/gradle/libs.versions.toml') }}
+          restore-keys: gradle-
+
+      - name: Cache NDK build (.cxx)
+        uses: actions/cache@v4
+        with:
+          path: main/android/app/.cxx
+          key: ndk-arm64-${{ hashFiles('main/android/app/CMakeLists.txt', 'main/android/app/src/main/cpp/**') }}
+          restore-keys: ndk-arm64-
+
+      - name: Make gradlew executable
+        run: chmod +x main/android/gradlew
+
+      - name: Build debug APK
+        working-directory: main/android
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-${{ github.sha }}
+          path: main/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14
+
+      # ── Release build (main branch only, requires signing secrets) ──────────
+      - name: Decode keystore
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.KEYSTORE_B64 != ''
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: echo "$KEYSTORE_B64" | base64 -d > main/android/app/keystore.jks
+
+      - name: Build release APK
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.KEYSTORE_B64 != ''
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        working-directory: main/android
+        run: |
+          ./gradlew assembleRelease \
+            -Pandroid.injected.signing.store.file=${{ github.workspace }}/main/android/app/keystore.jks \
+            -Pandroid.injected.signing.store.password=$STORE_PASSWORD \
+            -Pandroid.injected.signing.key.alias=$KEY_ALIAS \
+            -Pandroid.injected.signing.key.password=$KEY_PASSWORD \
+            --no-daemon --stacktrace
+
+      - name: Upload release APK
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.KEYSTORE_B64 != ''
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_BASE64 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-${{ github.sha }}
+          path: main/android/app/build/outputs/apk/release/app-release.apk
+          retention-days: 30
