@@ -17,12 +17,15 @@
 
 // ─── Handle struct ────────────────────────────────────────────────────────────
 struct LlamaHandle {
-    llama_model*            model   = nullptr;
-    llama_context*          ctx     = nullptr;
-    const llama_vocab*      vocab   = nullptr;
-    int                     n_ctx   = 0;
-    int                     n_vocab = 0;
-    std::atomic<bool>       cancel{false};
+    llama_model*             model       = nullptr;
+    llama_context*           ctx         = nullptr;
+    const llama_vocab*       vocab       = nullptr;
+    int                      n_ctx       = 0;
+    int                      n_vocab     = 0;
+    std::atomic<bool>        cancel{false};
+    // KV-cache prefix reuse: track what was encoded last call
+    std::vector<llama_token> prev_tokens;
+    int                      n_past      = 0;
 };
 
 // ─── Callback method IDs (cached once) ────────────────────────────────────────
@@ -125,16 +128,13 @@ Java_com_main_agent_llm_LlamaEngine_nativeInfer(
 
     h->cancel.store(false);
 
-    // ── Clear KV cache from previous inference ───────────────────────────────
-    llama_memory_clear(llama_get_memory(h->ctx), true);
-
     // ── Build prompt string ──────────────────────────────────────────────────
     const char* prompt_cstr = env->GetStringUTFChars(j_prompt, nullptr);
     std::string prompt(prompt_cstr);
     env->ReleaseStringUTFChars(j_prompt, prompt_cstr);
 
-    // ── Tokenize ─────────────────────────────────────────────────────────────
-    const int n_prompt_max = h->n_ctx - 64;  // leave room for generation
+    // ── Tokenize full prompt ──────────────────────────────────────────────────
+    const int n_prompt_max = h->n_ctx - 64;
     std::vector<llama_token> tokens(prompt.size() + 32);
     int n_tokens = llama_tokenize(
         h->vocab,
@@ -144,7 +144,6 @@ Java_com_main_agent_llm_LlamaEngine_nativeInfer(
         /*parse_special=*/true);
 
     if (n_tokens < 0) {
-        // Retry with larger buffer
         tokens.resize(-n_tokens + 16);
         n_tokens = llama_tokenize(
             h->vocab,
@@ -161,15 +160,46 @@ Java_com_main_agent_llm_LlamaEngine_nativeInfer(
     }
     tokens.resize(n_tokens);
 
-    // ── Initial decode ────────────────────────────────────────────────────────
-    llama_batch batch = llama_batch_get_one(tokens.data(), (int32_t)tokens.size());
-    if (llama_decode(h->ctx, batch) != 0) {
-        LOGE("llama_decode failed on prompt");
-        jstring je = env->NewStringUTF("Inference error: decode failed");
-        env->CallVoidMethod(j_callback, g_onError, je);
-        env->DeleteLocalRef(je);
-        return JNI_FALSE;
+    // ── KV-cache prefix reuse ─────────────────────────────────────────────────
+    // Find how many leading tokens match the previous call's tokens.
+    // If there is a common prefix we can keep those KV entries and only
+    // decode the new suffix — O(new_tokens) instead of O(total_tokens).
+    int n_common = 0;
+    {
+        int prev_sz = (int)h->prev_tokens.size();
+        int limit   = std::min(prev_sz, n_tokens);
+        while (n_common < limit && h->prev_tokens[n_common] == tokens[n_common])
+            n_common++;
     }
+
+    if (n_common > 0 && n_common <= h->n_past) {
+        // Trim KV cache back to the common prefix position
+        llama_kv_cache_seq_rm(h->ctx, 0, (llama_pos)n_common, -1);
+        h->n_past = n_common;
+        LOGD("KV reuse: kept=%d  new=%d", n_common, n_tokens - n_common);
+    } else {
+        // No usable prefix — clear and re-encode everything
+        llama_memory_clear(llama_get_memory(h->ctx), true);
+        h->n_past = 0;
+        LOGD("KV clear: encoding %d tokens from scratch", n_tokens);
+    }
+
+    // ── Encode only the new (non-cached) suffix ───────────────────────────────
+    if (n_tokens > h->n_past) {
+        llama_batch batch = llama_batch_get_one(
+            tokens.data() + h->n_past, n_tokens - h->n_past);
+        if (llama_decode(h->ctx, batch) != 0) {
+            LOGE("llama_decode failed on prompt suffix");
+            jstring je = env->NewStringUTF("Inference error: decode failed");
+            env->CallVoidMethod(j_callback, g_onError, je);
+            env->DeleteLocalRef(je);
+            return JNI_FALSE;
+        }
+        h->n_past = n_tokens;
+    }
+
+    // Remember for next call
+    h->prev_tokens = tokens;
 
     // ── Sampler setup ─────────────────────────────────────────────────────────
     llama_sampler_chain_params sparams = llama_sampler_chain_default_params();
@@ -221,6 +251,8 @@ Java_com_main_agent_llm_LlamaEngine_nativeInfer(
             LOGE("llama_decode failed during generation at token %d", n_generated);
             break;
         }
+        h->prev_tokens.push_back(token);
+        h->n_past++;
         n_generated++;
     }
 
@@ -253,6 +285,8 @@ Java_com_main_agent_llm_LlamaEngine_nativeFreeModel(
     auto* h = reinterpret_cast<LlamaHandle*>(j_handle);
     if (!h) return;
     LOGI("Freeing model handle");
+    h->prev_tokens.clear();
+    h->n_past = 0;
     if (h->ctx)   llama_free(h->ctx);
     if (h->model) llama_model_free(h->model);
     delete h;
@@ -287,9 +321,10 @@ Java_com_main_agent_llm_LlamaEngine_nativeApplyChatTemplate(
     int n_msgs = env->GetArrayLength(j_messages) / 2;
     if (n_msgs <= 0) return env->NewStringUTF("");
 
-    // Determine model family
-    bool is_llama  = (h->n_vocab == 128256);
-    bool is_gemma  = (h->n_vocab == 256000);
+    // Determine model family by vocab size
+    bool is_llama  = (h->n_vocab == 128256);  // Llama 3.x
+    bool is_gemma  = (h->n_vocab == 256000);  // Gemma 2
+    bool is_qwen   = (h->n_vocab == 151936);  // Qwen 2.5
 
     std::string prompt;
     for (int i = 0; i < n_msgs; i++) {
@@ -305,7 +340,22 @@ Java_com_main_agent_llm_LlamaEngine_nativeApplyChatTemplate(
         const char* role_str    = env->GetStringUTFChars(jrole, nullptr);
         const char* content_str = env->GetStringUTFChars(jcontent, nullptr);
 
-        if (is_gemma) {
+        if (is_qwen) {
+            // Qwen 2.5 ChatML format
+            if (strcmp(role_str, "system") == 0) {
+                prompt += "<|im_start|>system\n";
+                prompt += content_str;
+                prompt += "<|im_end|>\n";
+            } else if (strcmp(role_str, "user") == 0 || strcmp(role_str, "tool") == 0) {
+                prompt += "<|im_start|>user\n";
+                prompt += content_str;
+                prompt += "<|im_end|>\n";
+            } else if (strcmp(role_str, "assistant") == 0) {
+                prompt += "<|im_start|>assistant\n";
+                prompt += content_str;
+                prompt += "<|im_end|>\n";
+            }
+        } else if (is_gemma) {
             // Gemma 2 format
             if (i == 0) prompt += "<bos>";
             if (strcmp(role_str, "system") == 0) {
@@ -352,7 +402,9 @@ Java_com_main_agent_llm_LlamaEngine_nativeApplyChatTemplate(
     }
 
     if (add_ass) {
-        if (is_gemma) {
+        if (is_qwen) {
+            prompt += "<|im_start|>assistant\n";
+        } else if (is_gemma) {
             prompt += "<start_of_turn>model\n";
         } else if (is_llama) {
             prompt += "<|start_header_id|>assistant<|end_header_id|>\n\n";

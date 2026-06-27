@@ -155,7 +155,10 @@ class ModelManager(
 
     private suspend fun verifyChecksum(file: File, expected: String): Boolean =
         withContext(Dispatchers.IO) {
-            if (expected.isBlank()) return@withContext true
+            if (expected.isBlank()) {
+                Log.w(TAG, "No SHA-256 configured for ${file.name} — skipping integrity check (issue #11)")
+                return@withContext true
+            }
             try {
                 val digest = MessageDigest.getInstance("SHA-256")
                 file.inputStream().buffered(256 * 1024).use { ins ->

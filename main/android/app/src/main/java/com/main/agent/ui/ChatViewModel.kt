@@ -182,6 +182,12 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     fun clearError() = _uiState.update { it.copy(error = null) }
 
+    /** Called by the UI when the user taps Confirm or Deny on a tool confirmation dialog. */
+    fun confirmAction(confirmed: Boolean) {
+        _agentCore?.confirmBroker?.resolve(confirmed)
+        _uiState.update { it.copy(awaitingConfirm = null) }
+    }
+
     fun getRouteLabel(route: Route?): String = when (route) {
         null -> "Auto"
         Route.LocalSmall -> "Small (Local)"

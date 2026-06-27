@@ -23,6 +23,7 @@ class ReActLoop(private val engine: LlamaEngine) {
         messages: List<Pair<String, String>>,
         route:    Route,
         registry: ToolRegistry,
+        confirmBroker: ConfirmationBroker,
         maxIter:  Int = 8,
     ): Flow<String> = flow {
         val mutableMessages = messages.toMutableList()
@@ -124,12 +125,26 @@ class ReActLoop(private val engine: LlamaEngine) {
                     }
                     is ToolResult.Error -> "Tool error [${toolResult.errorCode}]: ${toolResult.message}"
                     is ToolResult.NeedsConfirmation -> {
-                        emit("\n⚠ Confirmation required: ${toolResult.prompt}\n")
-                        "Tool requires user confirmation. Asking user…"
+                        emit("\n⚠ ${toolResult.title}: ${toolResult.message}\n")
+                        val confirmed = confirmBroker.request()  // suspends until UI responds
+                        if (confirmed) {
+                            // Retry with confirmed flag in args
+                            val confirmedArgs = toolResult.jsonData.ifBlank { "{\"confirmed\":true}" }
+                            val retryResult = registry.execute(context, toolName, confirmedArgs)
+                            when (retryResult) {
+                                is ToolResult.Success -> "Tool result:\n${retryResult.content}"
+                                is ToolResult.Error   -> "Tool error [${retryResult.errorCode}]: ${retryResult.message}"
+                                else                  -> "Tool result unavailable"
+                            }
+                        } else {
+                            "User denied confirmation for $toolName — skipping."
+                        }
                     }
                 }
 
-                mutableMessages.add("tool" to resultContent)
+                // Use "user" role — "tool" role unsupported by all cloud APIs
+                // in text-based ReAct mode; local chat templates map it correctly too.
+                mutableMessages.add("user" to resultContent)
             }
 
             if (iter == maxIter - 1) {

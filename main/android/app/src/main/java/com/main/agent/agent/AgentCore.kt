@@ -40,6 +40,7 @@ class AgentCore(
     val router:               AgentRouter,
     private val reactLoop:    ReActLoop,
 ) {
+    val confirmBroker = ConfirmationBroker()
 
     val availableRoutes: List<Route> get() = buildList {
         add(Route.LocalSmall)
@@ -76,6 +77,6 @@ class AgentCore(
         Log.d(TAG, "Route: $route")
 
         // 3. Run ReAct loop — emits streaming tokens
-        emitAll(reactLoop.run(context, messages, route, toolRegistry, MAX_ITER))
+        emitAll(reactLoop.run(context, messages, route, toolRegistry, confirmBroker, MAX_ITER))
     }
 }
