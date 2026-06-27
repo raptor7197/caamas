@@ -3,6 +3,8 @@ package com.main.agent.tools.web
 import android.content.Context
 import com.main.agent.tools.base.Tool
 import com.main.agent.tools.base.ToolResult
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
@@ -29,7 +31,7 @@ class WebSearchTool : Tool {
             ?: return ToolResult.Error("Missing 'query' argument")
 
         return try {
-            val result = tryDuckDuckGo(query, 5)
+            val result = withContext(Dispatchers.IO) { tryDuckDuckGo(query, 5) }
             if (result != null) {
                 ToolResult.Success(result)
             } else {

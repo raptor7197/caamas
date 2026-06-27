@@ -17,7 +17,7 @@ private const val BASE_URL = "https://api.anthropic.com/v1/messages"
 
 class AnthropicProvider(
     private val apiKey: String,
-    val model: String = "claude-3-5-sonnet-20241022",
+    val model: String = "claude-sonnet-4-5",
 ) : CloudProvider {
 
     override val name = "Anthropic ($model)"
@@ -25,13 +25,14 @@ class AnthropicProvider(
 
     private val client = OkHttpClient.Builder().build()
 
+    private data class ToolAccum(val name: String, val args: StringBuilder = StringBuilder())
+
     override fun complete(
         messages: List<Pair<String, String>>,
         tools: List<String>,
         temperature: Float,
         maxTokens: Int,
     ): Flow<String> = callbackFlow {
-        // Anthropic separates system from user/assistant messages
         val systemMsg = messages.firstOrNull { it.first == "system" }?.second ?: ""
         val chatMsgs  = messages.filter { it.first != "system" }
 
@@ -77,6 +78,9 @@ class AnthropicProvider(
             close(IOException(err)); return@callbackFlow
         }
 
+        // index → accumulator for streaming tool call args
+        val toolAccum = mutableMapOf<Int, ToolAccum>()
+
         resp.body?.source()?.let { src ->
             withContext(Dispatchers.IO) {
                 while (!src.exhausted()) {
@@ -84,22 +88,38 @@ class AnthropicProvider(
                     if (!line.startsWith("data: ")) continue
                     val data = line.removePrefix("data: ").trim()
                     try {
-                        val json  = Json.parseToJsonElement(data).jsonObject
+                        val json      = Json.parseToJsonElement(data).jsonObject
                         val eventType = json["type"]?.jsonPrimitive?.content
+                        val blockIdx  = json["index"]?.jsonPrimitive?.intOrNull ?: 0
+
                         when (eventType) {
-                            "content_block_delta" -> {
-                                val delta = json["delta"]?.jsonObject
-                                delta?.get("text")?.jsonPrimitive?.contentOrNull?.let { trySend(it) }
-                            }
                             "content_block_start" -> {
                                 val block = json["content_block"]?.jsonObject
                                 if (block?.get("type")?.jsonPrimitive?.content == "tool_use") {
                                     val name = block["name"]?.jsonPrimitive?.content ?: ""
-                                    trySend("[TOOL_CALL]{\"name\":\"$name\",\"args\":{}}")
+                                    toolAccum[blockIdx] = ToolAccum(name)
+                                }
+                            }
+                            "content_block_delta" -> {
+                                val delta = json["delta"]?.jsonObject
+                                when (delta?.get("type")?.jsonPrimitive?.content) {
+                                    "text_delta" ->
+                                        delta["text"]?.jsonPrimitive?.contentOrNull?.let { trySend(it) }
+                                    "input_json_delta" ->
+                                        delta["partial_json"]?.jsonPrimitive?.contentOrNull
+                                            ?.let { toolAccum[blockIdx]?.args?.append(it) }
+                                }
+                            }
+                            "content_block_stop" -> {
+                                toolAccum.remove(blockIdx)?.let { accum ->
+                                    val argsJson = accum.args.toString().ifBlank { "{}" }
+                                    trySend("[TOOL_CALL]{\"name\":\"${accum.name}\",\"args\":$argsJson}[/TOOL_CALL]")
                                 }
                             }
                         }
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) {
+                        Log.w(TAG, "SSE parse error: ${e.message}")
+                    }
                 }
             }
         }

@@ -12,37 +12,77 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.json.*
 
 private const val TAG = "ReActLoop"
+private const val TOOL_START = "[TOOL_CALL]"
+private const val TOOL_END   = "[/TOOL_CALL]"
 private val TOOL_CALL_RE = Regex("""\[TOOL_CALL\](.*?)\[/TOOL_CALL\]""", RegexOption.DOT_MATCHES_ALL)
 
 class ReActLoop(private val engine: LlamaEngine) {
 
     fun run(
-        context:      Context,
-        messages:     List<Pair<String, String>>,
-        route:        Route,
-        registry:     ToolRegistry,
-        maxIter:      Int = 8,
+        context:  Context,
+        messages: List<Pair<String, String>>,
+        route:    Route,
+        registry: ToolRegistry,
+        maxIter:  Int = 8,
     ): Flow<String> = flow {
         val mutableMessages = messages.toMutableList()
 
         for (iter in 0 until maxIter) {
             Log.d(TAG, "Iteration $iter  messages=${mutableMessages.size}")
 
-            val responseSb = StringBuilder()
+            val responseSb    = StringBuilder()
+            val displayBuffer = StringBuilder()
+            var inToolCall    = false
 
             when (route) {
                 is Route.LocalSmall, is Route.LocalLarge -> {
-                    val prompt = engine.applyChatTemplate(mutableMessages, addAssistant = true)
-                    val maxTok = if (route is Route.LocalLarge) 1024 else 512
+                    val prompt  = engine.applyChatTemplate(mutableMessages, addAssistant = true)
+                    val maxTok  = if (route is Route.LocalLarge) 1024 else 512
+
                     engine.inference(prompt, maxTokens = maxTok).collect { token ->
                         responseSb.append(token)
-                        if (!token.contains("[TOOL_CALL]")) emit(token)
+                        displayBuffer.append(token)
+                        val pending = displayBuffer.toString()
+
+                        when {
+                            inToolCall -> {
+                                if (pending.contains(TOOL_END)) {
+                                    inToolCall = false
+                                    val after = pending.substringAfter(TOOL_END)
+                                    displayBuffer.clear()
+                                    displayBuffer.append(after)
+                                }
+                                // inside tool call — don't emit
+                            }
+                            pending.contains(TOOL_START) -> {
+                                val before = pending.substringBefore(TOOL_START)
+                                if (before.isNotEmpty()) emit(before)
+                                inToolCall = true
+                                displayBuffer.clear()
+                                displayBuffer.append(TOOL_START)
+                                displayBuffer.append(pending.substringAfter(TOOL_START))
+                            }
+                            else -> {
+                                // hold back enough chars to catch a split tag at stream boundary
+                                val holdLen = TOOL_START.length - 1
+                                if (pending.length > holdLen) {
+                                    val safe = pending.dropLast(holdLen)
+                                    emit(safe)
+                                    displayBuffer.delete(0, safe.length)
+                                }
+                            }
+                        }
                     }
+
+                    // flush anything left that isn't inside a tool call
+                    val remaining = displayBuffer.toString()
+                    if (remaining.isNotEmpty() && !inToolCall) emit(remaining)
                 }
+
                 is Route.Cloud -> {
                     route.provider.complete(mutableMessages).collect { token ->
                         responseSb.append(token)
-                        if (!token.startsWith("[TOOL_CALL]")) emit(token)
+                        if (!token.startsWith(TOOL_START)) emit(token)
                     }
                 }
             }
@@ -50,45 +90,50 @@ class ReActLoop(private val engine: LlamaEngine) {
             val response = responseSb.toString()
             mutableMessages.add("assistant" to response)
 
-            val toolMatch = TOOL_CALL_RE.find(response)
-            if (toolMatch == null) {
+            val toolMatches = TOOL_CALL_RE.findAll(response).toList()
+            if (toolMatches.isEmpty()) {
                 Log.d(TAG, "Final answer at iter $iter")
                 break
             }
 
-            val callJson = toolMatch.groupValues[1].trim()
-            Log.d(TAG, "Tool call: ${callJson.take(120)}")
+            for (match in toolMatches) {
+                val callJson = match.groupValues[1].trim()
+                Log.d(TAG, "Tool call: ${callJson.take(120)}")
 
-            val (toolName, toolArgs) = try {
-                val obj  = Json.parseToJsonElement(callJson).jsonObject
-                val name = obj["name"]?.jsonPrimitive?.content ?: ""
-                val args = obj["args"]?.jsonObject?.toString() ?: "{}"
-                name to args
-            } catch (e: Exception) {
-                emit("\n\u26A0 Could not parse tool call: ${e.message}\n")
-                break
-            }
-
-            emit("\n\u2699 Running tool: $toolName\u2026\n")
-            val toolResult = registry.execute(context, toolName, toolArgs)
-            Log.d(TAG, "Tool result: ${toolResult.toLogString()}")
-
-            val resultContent = when (toolResult) {
-                is ToolResult.Success -> {
-                    val sanitized = toolResult.content.replace(Regex("""\[TOOL_CALL\].*?\[/TOOL_CALL\]""", RegexOption.DOT_MATCHES_ALL), "[tool result suppressed]")
-                    "Tool result:\n$sanitized"
+                val (toolName, toolArgs) = try {
+                    val obj  = Json.parseToJsonElement(callJson).jsonObject
+                    val name = obj["name"]?.jsonPrimitive?.content ?: ""
+                    val args = obj["args"]?.jsonObject?.toString() ?: "{}"
+                    name to args
+                } catch (e: Exception) {
+                    emit("\n⚠ Could not parse tool call: ${e.message}\n")
+                    continue
                 }
-                is ToolResult.Error -> "Tool error [${toolResult.errorCode}]: ${toolResult.message}"
-                is ToolResult.NeedsConfirmation -> {
-                    emit("\n\u26A0 Confirmation required: ${toolResult.prompt}\n")
-                    "Tool requires user confirmation. Asking user\u2026"
-                }
-            }
 
-            mutableMessages.add("tool" to resultContent)
+                emit("\n⚙ Running tool: $toolName…\n")
+                val toolResult = registry.execute(context, toolName, toolArgs)
+                Log.d(TAG, "Tool result: ${toolResult.toLogString()}")
+
+                val resultContent = when (toolResult) {
+                    is ToolResult.Success -> {
+                        val sanitized = toolResult.content.replace(
+                            Regex("""\[TOOL_CALL\].*?\[/TOOL_CALL\]""", RegexOption.DOT_MATCHES_ALL),
+                            "[tool result suppressed]"
+                        )
+                        "Tool result:\n$sanitized"
+                    }
+                    is ToolResult.Error -> "Tool error [${toolResult.errorCode}]: ${toolResult.message}"
+                    is ToolResult.NeedsConfirmation -> {
+                        emit("\n⚠ Confirmation required: ${toolResult.prompt}\n")
+                        "Tool requires user confirmation. Asking user…"
+                    }
+                }
+
+                mutableMessages.add("tool" to resultContent)
+            }
 
             if (iter == maxIter - 1) {
-                emit("\n\nI tried $maxIter times but couldn't complete the task. Last result: ${toolResult.toLogString()}")
+                emit("\n\nReached max iterations ($maxIter). Last result: ${mutableMessages.last().second.take(80)}")
             }
         }
     }

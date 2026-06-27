@@ -25,6 +25,11 @@ class MistralProvider(
 
     private val client = OkHttpClient.Builder().build()
 
+    private data class FnAccum(
+        val name: StringBuilder = StringBuilder(),
+        val args: StringBuilder = StringBuilder(),
+    )
+
     override fun complete(
         messages: List<Pair<String, String>>,
         tools: List<String>,
@@ -65,6 +70,8 @@ class MistralProvider(
             close(IOException(err)); return@callbackFlow
         }
 
+        val toolAccum = mutableMapOf<Int, FnAccum>()
+
         resp.body?.source()?.let { src ->
             withContext(Dispatchers.IO) {
                 while (!src.exhausted()) {
@@ -73,18 +80,36 @@ class MistralProvider(
                     val data = line.removePrefix("data: ").trim()
                     if (data == "[DONE]") break
                     try {
-                        val json  = Json.parseToJsonElement(data).jsonObject
-                        val delta = json["choices"]?.jsonArray
-                            ?.firstOrNull()?.jsonObject
-                            ?.get("delta")?.jsonObject
-                        delta?.get("tool_calls")?.jsonArray?.firstOrNull()?.jsonObject?.let { tc ->
-                            val fn   = tc["function"]?.jsonObject
-                            val name = fn?.get("name")?.jsonPrimitive?.content ?: ""
-                            val args = fn?.get("arguments")?.jsonPrimitive?.content ?: "{}"
-                            trySend("[TOOL_CALL]{\"name\":\"$name\",\"args\":$args}")
+                        val json   = Json.parseToJsonElement(data).jsonObject
+                        val choice = json["choices"]?.jsonArray?.firstOrNull()?.jsonObject
+                        val delta  = choice?.get("delta")?.jsonObject
+
+                        delta?.get("tool_calls")?.jsonArray?.forEach { tcElem ->
+                            val tc    = tcElem.jsonObject
+                            val index = tc["index"]?.jsonPrimitive?.intOrNull ?: 0
+                            val accum = toolAccum.getOrPut(index) { FnAccum() }
+                            val fn    = tc["function"]?.jsonObject
+                            fn?.get("name")?.jsonPrimitive?.contentOrNull?.let { accum.name.append(it) }
+                            fn?.get("arguments")?.jsonPrimitive?.contentOrNull?.let { accum.args.append(it) }
                         }
+
                         delta?.get("content")?.jsonPrimitive?.contentOrNull?.let { trySend(it) }
+
+                        val finishReason = choice?.get("finish_reason")?.jsonPrimitive?.contentOrNull
+                        if (finishReason == "tool_calls" && toolAccum.isNotEmpty()) {
+                            toolAccum.values.forEach { accum ->
+                                val name = accum.name.toString()
+                                val args = accum.args.toString().ifBlank { "{}" }
+                                trySend("[TOOL_CALL]{\"name\":\"$name\",\"args\":$args}[/TOOL_CALL]")
+                            }
+                            toolAccum.clear()
+                        }
                     } catch (_: Exception) {}
+                }
+                toolAccum.values.forEach { accum ->
+                    val name = accum.name.toString()
+                    val args = accum.args.toString().ifBlank { "{}" }
+                    trySend("[TOOL_CALL]{\"name\":\"$name\",\"args\":$args}[/TOOL_CALL]")
                 }
             }
         }

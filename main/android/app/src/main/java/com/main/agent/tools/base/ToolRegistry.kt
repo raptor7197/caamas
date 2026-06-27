@@ -23,11 +23,11 @@ class ToolRegistry(
         put("calculator",      CalculatorTool())
         put("get_weather",     WeatherTool())
         put("open_maps",       MapsTool())
-        put("search_web",      WebSearchTool())
-        put("fetch_url",       BrowserTool())
+        put("web_search",      WebSearchTool())
+        put("browse_url",      BrowserTool())
         put("read_rag",        ragTool)
 
-        put("toggle_settings", SettingsTool())
+        put("device_settings", SettingsTool())
         put("take_screenshot", ScreenshotTool())
         put("clipboard",       ClipboardTool())
 

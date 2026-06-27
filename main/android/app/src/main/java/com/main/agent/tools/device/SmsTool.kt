@@ -42,7 +42,12 @@ class SmsTool : Tool {
                     )
                 } else {
                     try {
-                        SmsManager.getDefault().sendTextMessage(to, null, msg, null, null)
+                        val smsManager = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                            context.getSystemService(SmsManager::class.java)
+                        } else {
+                            @Suppress("DEPRECATION") SmsManager.getDefault()
+                        }
+                        smsManager.sendTextMessage(to, null, msg, null, null)
                         ToolResult.Success("SMS sent to $to")
                     } catch (e: Exception) {
                         ToolResult.Error("Failed to send SMS: ${e.message}")
