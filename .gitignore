@@ -43,3 +43,7 @@ Thumbs.db
 
 # Android native build
 .cxx/
+
+# Gradle distribution cache (never commit)
+gradle-8*/
+gradle/wrapper/gradle-*/
