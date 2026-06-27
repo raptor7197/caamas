@@ -1,6 +1,5 @@
 # Android / Kotlin
 *.class
-*.jar
 *.apk
 *.aab
 *.dex
