@@ -43,6 +43,16 @@ jobs:
           key: ndk-arm64-${{ hashFiles('main/android/app/CMakeLists.txt', 'main/android/app/src/main/cpp/**') }}
           restore-keys: ndk-arm64-
 
+      - name: Cache third_party (llama.cpp + whisper.cpp)
+        uses: actions/cache@v4
+        with:
+          path: main/android/app/src/main/cpp/third_party
+          key: third-party-llama-b9530-whisper-v1.7.4
+
+      - name: Fetch llama.cpp and whisper.cpp
+        working-directory: main
+        run: bash scripts/setup.sh
+
       - name: Make gradlew executable
         run: chmod +x main/android/gradlew
 
