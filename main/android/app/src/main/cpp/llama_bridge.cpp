@@ -174,7 +174,7 @@ Java_com_main_agent_llm_LlamaEngine_nativeInfer(
 
     if (n_common > 0 && n_common <= h->n_past) {
         // Trim KV cache back to the common prefix position
-        llama_kv_cache_seq_rm(h->ctx, 0, (llama_pos)n_common, -1);
+        llama_memory_seq_rm(llama_get_memory(h->ctx), 0, (llama_pos)n_common, -1);
         h->n_past = n_common;
         LOGD("KV reuse: kept=%d  new=%d", n_common, n_tokens - n_common);
     } else {
@@ -246,7 +246,7 @@ Java_com_main_agent_llm_LlamaEngine_nativeInfer(
         }
 
         // Next decode
-        batch = llama_batch_get_one(&token, 1);
+        llama_batch batch = llama_batch_get_one(&token, 1);
         if (llama_decode(h->ctx, batch) != 0) {
             LOGE("llama_decode failed during generation at token %d", n_generated);
             break;
