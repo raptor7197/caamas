@@ -55,6 +55,10 @@ android {
 
     buildFeatures { compose = true }
 
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -67,6 +71,10 @@ android {
     }
 
     ndkVersion = "27.2.12479018"
+}
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {
@@ -93,6 +101,9 @@ dependencies {
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
 
+    // SQLCipher (Room database encryption at rest)
+    implementation(libs.sqlcipher.android)
+
     // Coroutines
     implementation(libs.coroutines.android)
 
@@ -115,4 +126,9 @@ dependencies {
 
     // Image loading
     implementation(libs.coil.compose)
+
+    // Unit testing
+    testImplementation(libs.junit)
+    testImplementation(libs.coroutines.test)
+    testImplementation(libs.mockk)
 }

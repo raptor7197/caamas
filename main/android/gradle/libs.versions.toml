@@ -18,6 +18,9 @@ documentfile     = "1.0.1"
 coil             = "2.7.0"
 splashscreen     = "1.0.1"
 material         = "1.12.0"
+sqlcipher        = "4.5.4"
+junit            = "4.13.2"
+mockk            = "1.13.13"
 
 [libraries]
 compose-bom                    = { group = "androidx.compose",       name = "compose-bom",                version.ref = "composeBom" }
@@ -46,6 +49,10 @@ documentfile                   = { group = "androidx.documentfile",   name = "do
 coil-compose                   = { group = "io.coil-kt",              name = "coil-compose",           version.ref = "coil" }
 splashscreen                   = { group = "androidx.core",           name = "core-splashscreen",      version.ref = "splashscreen" }
 material                        = { group = "com.google.android.material", name = "material",            version.ref = "material" }
+sqlcipher-android               = { group = "net.zetetic",            name = "android-database-sqlcipher", version.ref = "sqlcipher" }
+junit                           = { group = "junit",                  name = "junit",                  version.ref = "junit" }
+coroutines-test                 = { group = "org.jetbrains.kotlinx",   name = "kotlinx-coroutines-test", version.ref = "coroutines" }
+mockk                           = { group = "io.mockk",                name = "mockk",                  version.ref = "mockk" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

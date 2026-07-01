@@ -153,7 +153,7 @@ class ModelManager(
             }
         }
 
-    private suspend fun verifyChecksum(file: File, expected: String): Boolean =
+    internal suspend fun verifyChecksum(file: File, expected: String): Boolean =
         withContext(Dispatchers.IO) {
             if (expected.isBlank()) {
                 Log.w(TAG, "No SHA-256 configured for ${file.name} — skipping integrity check (issue #11)")

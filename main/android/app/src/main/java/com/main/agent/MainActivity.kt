@@ -33,9 +33,13 @@ import androidx.compose.ui.unit.dp
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import com.main.agent.agent.AgentCore
 import com.main.agent.agent.AgentRouter
 import com.main.agent.agent.ReActLoop
+import com.main.agent.agent.RetentionWorker
 import com.main.agent.agent.SessionManager
 import com.main.agent.llm.DeviceCapability
 import com.main.agent.llm.LlamaEngine
@@ -60,6 +64,7 @@ import com.main.agent.voice.WhisperSTT
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.io.File
+import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
 
@@ -80,6 +85,12 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         checkStoragePermission()
+
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "session_retention",
+            ExistingPeriodicWorkPolicy.KEEP,
+            PeriodicWorkRequestBuilder<RetentionWorker>(1, TimeUnit.DAYS).build(),
+        )
 
         val app   = application as AgentApp
         val prefs = app.prefs

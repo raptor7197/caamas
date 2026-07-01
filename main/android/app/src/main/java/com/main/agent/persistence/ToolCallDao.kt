@@ -13,4 +13,7 @@ interface ToolCallDao {
 
     @Query("DELETE FROM tool_calls WHERE sessionId=:sessionId")
     suspend fun deleteBySession(sessionId: Long)
+
+    @Query("DELETE FROM tool_calls")
+    suspend fun deleteAll()
 }

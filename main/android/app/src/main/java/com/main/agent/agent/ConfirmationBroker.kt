@@ -1,6 +1,7 @@
 package com.main.agent.agent
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Bridges the ReAct loop and the UI for dangerous tool confirmations.
@@ -12,11 +13,16 @@ class ConfirmationBroker {
 
     @Volatile private var pending: CompletableDeferred<Boolean>? = null
 
-    /** Suspend until the user confirms (true) or denies (false). */
-    suspend fun request(): Boolean {
+    /**
+     * Suspend until the user confirms (true) or denies (false), or until [timeoutMs]
+     * elapses, in which case this returns false so the loop doesn't hang forever.
+     */
+    suspend fun request(timeoutMs: Long = 120_000L): Boolean {
         val d = CompletableDeferred<Boolean>()
         pending = d
-        return d.await()
+        val result = withTimeoutOrNull(timeoutMs) { d.await() }
+        if (result == null) pending = null
+        return result ?: false
     }
 
     /** Call from the UI thread when the user taps Confirm or Deny. */

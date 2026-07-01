@@ -1,6 +1,7 @@
 package com.main.agent.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -21,17 +22,24 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.main.agent.agent.Route
 import com.main.agent.persistence.entities.MessageEntity
-import com.main.agent.ui.theme.AgentSurface2
 import com.main.agent.ui.theme.AgentBlue
+import com.main.agent.ui.theme.AgentInk
+import com.main.agent.ui.theme.AgentInkSoft
+import com.main.agent.ui.theme.AgentLine
+import com.main.agent.ui.theme.AgentMist
+import com.main.agent.ui.theme.AgentPaper
+import com.main.agent.ui.theme.AgentPeach
+import com.main.agent.ui.theme.AgentPeachDeep
+import com.main.agent.ui.theme.AgentSurface2
 import com.main.agent.ui.theme.ToolChip
 import com.main.agent.voice.VoicePipeline
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -41,7 +49,6 @@ fun ChatScreen(
 ) {
     val uiState    by viewModel.uiState.collectAsState()
     val listState  = rememberLazyListState()
-    val scope      = rememberCoroutineScope()
     var inputText  by remember { mutableStateOf("") }
     var showStats  by remember { mutableStateOf(false) }
 
@@ -59,57 +66,96 @@ fun ChatScreen(
             Column {
                 TopAppBar(
                     title = {
-                        Column {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                var expanded by remember { mutableStateOf(false) }
-                                TextButton(onClick = { expanded = true }) {
-                                    Text(
-                                        viewModel.getRouteLabel(uiState.selectedRoute),
-                                        color = MaterialTheme.colorScheme.onBackground,
-                                    )
-                                    Icon(Icons.Default.ArrowDropDown, "Select model")
-                                }
-                                DropdownMenu(
-                                    expanded = expanded,
-                                    onDismissRequest = { expanded = false },
-                                ) {
-                                    DropdownMenuItem(
-                                        text = { Text("Auto") },
-                                        onClick = { viewModel.setSelectedRoute(null); expanded = false },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Small (Local)") },
-                                        onClick = { viewModel.setSelectedRoute(Route.LocalSmall); expanded = false },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Large (Local)") },
-                                        onClick = { viewModel.setSelectedRoute(Route.LocalLarge); expanded = false },
-                                    )
-                                    uiState.availableRoutes.forEach { route ->
-                                        if (route is Route.Cloud) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            BlobMark(
+                                modifier = Modifier.size(38.dp),
+                                ink = AgentPaper,
+                                paper = AgentInk,
+                                accent = AgentPeach,
+                            )
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    "CAAMAS",
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AgentPaper,
+                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    var expanded by remember { mutableStateOf(false) }
+                                    Box {
+                                        Surface(
+                                            modifier = Modifier.clickable { expanded = true },
+                                            shape = RoundedCornerShape(50),
+                                            color = AgentPaper,
+                                            border = BorderStroke(2.dp, AgentLine),
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                            ) {
+                                                Text(
+                                                    viewModel.getRouteLabel(uiState.selectedRoute),
+                                                    color = AgentInk,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                )
+                                                Icon(
+                                                    Icons.Default.ArrowDropDown,
+                                                    "Select model",
+                                                    tint = AgentInk,
+                                                    modifier = Modifier.size(18.dp),
+                                                )
+                                            }
+                                        }
+                                        DropdownMenu(
+                                            expanded = expanded,
+                                            onDismissRequest = { expanded = false },
+                                        ) {
                                             DropdownMenuItem(
-                                                text = { Text(route.provider.name) },
-                                                onClick = { viewModel.setSelectedRoute(route); expanded = false },
+                                                text = { Text("Auto") },
+                                                onClick = { viewModel.setSelectedRoute(null); expanded = false },
                                             )
+                                            DropdownMenuItem(
+                                                text = { Text("Small (Local)") },
+                                                onClick = { viewModel.setSelectedRoute(Route.LocalSmall); expanded = false },
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("Large (Local)") },
+                                                onClick = { viewModel.setSelectedRoute(Route.LocalLarge); expanded = false },
+                                            )
+                                            uiState.availableRoutes.forEach { route ->
+                                                if (route is Route.Cloud) {
+                                                    DropdownMenuItem(
+                                                        text = { Text(route.provider.name) },
+                                                        onClick = { viewModel.setSelectedRoute(route); expanded = false },
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        modifier = Modifier.clickable { showStats = !showStats },
+                                        text = if (showStats) "Hide stats" else "Show stats",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = AgentPeach,
+                                    )
                                 }
                             }
-                            Text(
-                                modifier = Modifier.clickable { showStats = !showStats },
-                                text = if (showStats) "Hide stats \u25b4" else "Show stats \u25be",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = AgentBlue,
-                            )
                         }
                     },
                     actions = {
                         IconButton(onClick = onOpenSettings) {
-                            Icon(Icons.Default.Settings, "Settings")
+                            Icon(Icons.Default.Settings, "Settings", tint = AgentPaper)
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.background,
+                        containerColor = AgentInk,
+                        titleContentColor = AgentPaper,
+                        actionIconContentColor = AgentPaper,
                     )
                 )
                 AnimatedVisibility(visible = showStats) {
@@ -119,7 +165,7 @@ fun ChatScreen(
                 }
             }
         },
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = AgentPaper,
     ) { padding ->
         Column(
             modifier = Modifier
@@ -130,8 +176,12 @@ fun ChatScreen(
                 state    = listState,
                 modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(vertical = 8.dp),
+                contentPadding = PaddingValues(vertical = 12.dp),
             ) {
+                if (uiState.messages.none { it.role != "system" } && uiState.streamingText.isEmpty()) {
+                    item { EmptyChatState() }
+                }
+
                 items(uiState.messages.filter { it.role != "system" }) { msg ->
                     MessageBubble(msg)
                 }
@@ -148,8 +198,9 @@ fun ChatScreen(
             uiState.error?.let { err ->
                 Surface(
                     color    = MaterialTheme.colorScheme.errorContainer,
-                    modifier = Modifier.fillMaxWidth().padding(8.dp),
-                    shape    = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    shape    = RoundedCornerShape(18.dp),
+                    border   = BorderStroke(2.dp, AgentLine),
                 ) {
                     Row(
                         Modifier.padding(12.dp),
@@ -161,71 +212,121 @@ fun ChatScreen(
                 }
             }
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(AgentSurface2)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = AgentInk,
+                shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
             ) {
-                OutlinedTextField(
-                    value            = inputText,
-                    onValueChange    = { if (it.length <= 4000) inputText = it },
-                    modifier         = Modifier.weight(1f),
-                    placeholder      = { Text("Ask anything\u2026", fontSize = 14.sp) },
-                    maxLines         = 5,
-                    keyboardOptions  = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions  = KeyboardActions(onSend = {
-                        if (inputText.isNotBlank() && !uiState.isGenerating) {
-                            viewModel.sendMessage(inputText.trim())
-                            inputText = ""
-                        }
-                    }),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor   = AgentBlue,
-                        unfocusedBorderColor = ToolChip,
-                    ),
-                    shape = RoundedCornerShape(12.dp),
-                    enabled = !uiState.isGenerating,
-                )
-                Spacer(Modifier.width(8.dp))
-                if (uiState.isGenerating) {
-                    IconButton(onClick = { viewModel.cancelGeneration() }) {
-                        Icon(Icons.Default.Stop, "Stop", tint = MaterialTheme.colorScheme.error)
-                    }
-                } else {
-                    val isListening = uiState.voiceState is VoicePipeline.State.Listening
-                    IconButton(
-                        onClick = {
-                            if (isListening) {
-                                viewModel.cancelGeneration()
-                            } else {
-                                viewModel.startVoiceListening()
-                            }
-                        },
-                        enabled = !uiState.isGenerating,
-                    ) {
-                        Icon(
-                            if (isListening) Icons.Default.Stop else Icons.Default.Mic,
-                            if (isListening) "Stop" else "Voice",
-                            tint = if (isListening) MaterialTheme.colorScheme.error else AgentBlue
-                        )
-                    }
-                    IconButton(
-                        onClick = {
-                            if (inputText.isNotBlank()) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedTextField(
+                        value            = inputText,
+                        onValueChange    = { if (it.length <= 4000) inputText = it },
+                        modifier         = Modifier.weight(1f),
+                        placeholder      = { Text("Ask anything...", fontSize = 14.sp) },
+                        maxLines         = 5,
+                        keyboardOptions  = KeyboardOptions(imeAction = ImeAction.Send),
+                        keyboardActions  = KeyboardActions(onSend = {
+                            if (inputText.isNotBlank() && !uiState.isGenerating) {
                                 viewModel.sendMessage(inputText.trim())
                                 inputText = ""
                             }
-                        },
-                        enabled = inputText.isNotBlank() && !uiState.isGenerating,
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.Send, "Send",
-                            tint = if (inputText.isNotBlank()) AgentBlue else ToolChip)
+                        }),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = AgentInk,
+                            unfocusedTextColor = AgentInk,
+                            focusedContainerColor = AgentPaper,
+                            unfocusedContainerColor = AgentPaper,
+                            disabledContainerColor = AgentMist,
+                            cursorColor = AgentPeachDeep,
+                            focusedBorderColor = AgentPeach,
+                            unfocusedBorderColor = AgentPaper,
+                            focusedPlaceholderColor = AgentInkSoft.copy(alpha = 0.55f),
+                            unfocusedPlaceholderColor = AgentInkSoft.copy(alpha = 0.55f),
+                        ),
+                        shape = RoundedCornerShape(22.dp),
+                        enabled = !uiState.isGenerating,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    if (uiState.isGenerating) {
+                        FilledIconButton(
+                            onClick = { viewModel.cancelGeneration() },
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = AgentPaper,
+                                contentColor = MaterialTheme.colorScheme.error,
+                            ),
+                        ) {
+                            Icon(Icons.Default.Stop, "Stop")
+                        }
+                    } else {
+                        val isListening = uiState.voiceState is VoicePipeline.State.Listening
+                        FilledIconButton(
+                            onClick = {
+                                if (isListening) {
+                                    viewModel.cancelGeneration()
+                                } else {
+                                    viewModel.startVoiceListening()
+                                }
+                            },
+                            enabled = !uiState.isGenerating,
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = AgentPaper,
+                                contentColor = if (isListening) MaterialTheme.colorScheme.error else AgentInk,
+                            ),
+                        ) {
+                            Icon(
+                                if (isListening) Icons.Default.Stop else Icons.Default.Mic,
+                                if (isListening) "Stop" else "Voice",
+                            )
+                        }
+                        FilledIconButton(
+                            onClick = {
+                                if (inputText.isNotBlank()) {
+                                    viewModel.sendMessage(inputText.trim())
+                                    inputText = ""
+                                }
+                            },
+                            enabled = inputText.isNotBlank() && !uiState.isGenerating,
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = if (inputText.isNotBlank()) AgentPeach else AgentMist,
+                                contentColor = AgentInk,
+                                disabledContainerColor = ToolChip,
+                                disabledContentColor = AgentInkSoft.copy(alpha = 0.45f),
+                            ),
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Send, "Send")
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun EmptyChatState() {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 56.dp, start = 20.dp, end = 20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        BlobMark(Modifier.size(112.dp))
+        Text(
+            "Ready when you are",
+            color = AgentInk,
+            fontSize = 24.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            "Ask a question, dictate a task, or connect a local model.",
+            color = AgentInkSoft,
+            fontSize = 14.sp,
+            lineHeight = 20.sp,
+        )
     }
 }
 
@@ -237,26 +338,24 @@ private fun MessageBubble(msg: MessageEntity) {
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
     ) {
-        Box(
-            modifier = Modifier
-                .widthIn(max = 300.dp)
-                .clip(RoundedCornerShape(
-                    topStart = 16.dp, topEnd = 16.dp,
-                    bottomStart = if (isUser) 16.dp else 4.dp,
-                    bottomEnd   = if (isUser) 4.dp  else 16.dp,
-                ))
-                .background(
-                    when {
-                        isUser -> AgentBlue
-                        isTool -> ToolChip
-                        else   -> AgentSurface2
-                    }
-                )
-                .padding(horizontal = 14.dp, vertical = 10.dp),
+        Surface(
+            modifier = Modifier.widthIn(max = 300.dp),
+            shape = RoundedCornerShape(
+                topStart = 18.dp, topEnd = 18.dp,
+                bottomStart = if (isUser) 18.dp else 6.dp,
+                bottomEnd   = if (isUser) 6.dp  else 18.dp,
+            ),
+            color = when {
+                isUser -> AgentPeach
+                isTool -> AgentMist
+                else   -> AgentPaper
+            },
+            border = BorderStroke(2.dp, AgentLine),
         ) {
             Text(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                 text     = msg.content,
-                color    = MaterialTheme.colorScheme.onSurface,
+                color    = AgentInk,
                 fontSize = 14.sp,
                 lineHeight = 20.sp,
             )
@@ -267,14 +366,19 @@ private fun MessageBubble(msg: MessageEntity) {
 @Composable
 private fun StreamingBubble(text: String) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
-        Box(
-            modifier = Modifier
-                .widthIn(max = 300.dp)
-                .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomEnd = 4.dp, bottomStart = 16.dp))
-                .background(AgentSurface2)
-                .padding(horizontal = 14.dp, vertical = 10.dp),
+        Surface(
+            modifier = Modifier.widthIn(max = 300.dp),
+            shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomEnd = 6.dp, bottomStart = 18.dp),
+            color = AgentPaper,
+            border = BorderStroke(2.dp, AgentLine),
         ) {
-            Text(text + "\u258C", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+            Text(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                text = text + "\u258C",
+                color = AgentInk,
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+            )
         }
     }
 }
@@ -284,7 +388,7 @@ private fun ModelStatsHeader(stats: ModelStats, cpuLoad: Float) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = AgentSurface2,
-        tonalElevation = 2.dp
+        tonalElevation = 2.dp,
     ) {
         Column(Modifier.padding(12.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -305,8 +409,8 @@ private fun ModelStatsHeader(stats: ModelStats, cpuLoad: Float) {
 @Composable
 private fun StatItem(label: String, value: String) {
     Column {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-        Text(value, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = AgentPeach)
+        Text(value, style = MaterialTheme.typography.bodySmall, color = AgentPaper)
     }
 }
 
@@ -317,7 +421,7 @@ private fun ThinkingIndicator() {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = AgentBlue)
-        Text("Thinking\u2026", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = AgentPeachDeep)
+        Text("Thinking...", fontSize = 13.sp, color = AgentInkSoft)
     }
 }

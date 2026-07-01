@@ -68,7 +68,7 @@ class AgentCore(
         val fullSystem   = "$SYSTEM_PROMPT\n\nAvailable tools:\n$toolSchemas"
         val messages     = buildList {
             add("system"    to fullSystem)
-            addAll(history.takeLast(20))   // keep last 20 turns for context
+            addAll(truncateHistoryToTokenBudget(history, fullSystem, userMessage))
             add("user"      to userMessage)
         }
 
@@ -78,5 +78,32 @@ class AgentCore(
 
         // 3. Run ReAct loop — emits streaming tokens
         emitAll(reactLoop.run(context, messages, route, toolRegistry, confirmBroker, MAX_ITER))
+    }
+
+    /**
+     * Token-budgeted truncation of conversation history, replacing a naive turn-count cutoff.
+     * No tokenizer is available at this layer, so tokens are estimated as chars/4 (rough
+     * heuristic for English text). Reserves headroom for system prompt, the new user message,
+     * and generation, then keeps as many of the most recent turns as fit in the remaining budget.
+     */
+    internal fun truncateHistoryToTokenBudget(
+        history: List<Pair<String, String>>,
+        fullSystem: String,
+        userMessage: String,
+    ): List<Pair<String, String>> {
+        val generationHeadroom = 256
+        var budget = capability.recommendedCtx -
+            (fullSystem.length / 4) -
+            (userMessage.length / 4) -
+            generationHeadroom
+
+        val kept = mutableListOf<Pair<String, String>>()
+        for (turn in history.asReversed()) {
+            val turnTokens = turn.second.length / 4
+            if (turnTokens > budget) break
+            kept.add(turn)
+            budget -= turnTokens
+        }
+        return kept.asReversed()
     }
 }

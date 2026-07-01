@@ -30,7 +30,15 @@ class LlamaEngine {
     private external fun nativeApplyChatTemplate(handle: Long, messages: Array<String>, addAssistant: Boolean): String
 
     companion object {
-        init { System.loadLibrary("agent_native") }
+        init {
+            try {
+                System.loadLibrary("agent_native")
+            } catch (e: UnsatisfiedLinkError) {
+                // Expected under plain-JVM unit tests (no .so present); any real device
+                // ships the library via the APK, so this only ever triggers off-device.
+                Log.w(TAG, "agent_native not loadable in this environment: ${e.message}")
+            }
+        }
     }
 
     interface InferenceCallback {

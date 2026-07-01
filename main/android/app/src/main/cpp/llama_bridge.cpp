@@ -15,6 +15,11 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
 
+// Safety margin (in tokens) kept free at the top of the KV cache so the
+// generation loop always stops before llama_decode() would be asked to
+// write past the end of the context window.
+constexpr int kGenMargin = 4;
+
 // ─── Handle struct ────────────────────────────────────────────────────────────
 struct LlamaHandle {
     llama_model*             model       = nullptr;
@@ -222,6 +227,11 @@ Java_com_main_agent_llm_LlamaEngine_nativeInfer(
     jobject cb_global = env->NewGlobalRef(j_callback);
 
     while (n_generated < max_tokens && !h->cancel.load()) {
+        if (h->n_past >= h->n_ctx - kGenMargin) {
+            LOGI("Context window reached (n_past=%d n_ctx=%d) — stopping generation early", h->n_past, h->n_ctx);
+            break;
+        }
+
         llama_token token = llama_sampler_sample(smpl, h->ctx, -1);
 
         // EOG or EOS

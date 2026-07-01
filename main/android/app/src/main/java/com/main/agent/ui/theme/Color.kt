@@ -2,12 +2,20 @@ package com.main.agent.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val AgentBlue     = Color(0xFF1A73E8)
-val AgentBlueDark = Color(0xFF0D47A1)
-val AgentSurface  = Color(0xFF0F0F0F)
-val AgentSurface2 = Color(0xFF1A1A1A)
-val AgentOnSurf   = Color(0xFFE8EAED)
-val AgentGreen    = Color(0xFF43A047)
-val AgentRed      = Color(0xFFE53935)
-val AgentAmber    = Color(0xFFF57C00)
-val ToolChip      = Color(0xFF2D2D2D)
+val AgentInk       = Color(0xFF151225)
+val AgentInkSoft   = Color(0xFF27223A)
+val AgentPaper     = Color(0xFFFFFFFF)
+val AgentMist      = Color(0xFFF2F0F7)
+val AgentLine      = Color(0xFF151225)
+val AgentPeach     = Color(0xFFFFB482)
+val AgentPeachDeep = Color(0xFFFF9A62)
+
+val AgentBlue     = AgentPeach
+val AgentBlueDark = AgentInk
+val AgentSurface  = AgentPaper
+val AgentSurface2 = AgentInk
+val AgentOnSurf   = AgentInk
+val AgentGreen    = Color(0xFF38A46B)
+val AgentRed      = Color(0xFFE94A4A)
+val AgentAmber    = AgentPeachDeep
+val ToolChip      = AgentMist

@@ -17,4 +17,13 @@ interface SessionDao {
 
     @Query("DELETE FROM sessions WHERE id=:id")
     suspend fun delete(id: Long)
+
+    @Query("SELECT id FROM sessions WHERE updatedAt < :cutoffMs")
+    suspend fun idsOlderThan(cutoffMs: Long): List<Long>
+
+    @Query("DELETE FROM sessions WHERE updatedAt < :cutoffMs")
+    suspend fun deleteOlderThan(cutoffMs: Long)
+
+    @Query("DELETE FROM sessions")
+    suspend fun deleteAll()
 }

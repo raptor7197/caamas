@@ -21,6 +21,17 @@ class SessionManager(private val db: AppDatabase) {
         db.sessionDao().delete(id)
     }
 
+    suspend fun pruneOldSessions(maxAgeMs: Long = 30L * 24 * 60 * 60 * 1000) {
+        val cutoff = System.currentTimeMillis() - maxAgeMs
+        db.sessionDao().idsOlderThan(cutoff).forEach { deleteSession(it) }
+    }
+
+    suspend fun clearAllHistory() {
+        db.messageDao().deleteAll()
+        db.toolCallDao().deleteAll()
+        db.sessionDao().deleteAll()
+    }
+
     suspend fun saveMessage(sessionId: Long, role: String, content: String): Long =
         db.messageDao().insert(
             MessageEntity(

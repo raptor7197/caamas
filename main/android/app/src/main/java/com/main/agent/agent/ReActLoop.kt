@@ -14,7 +14,15 @@ import kotlinx.serialization.json.*
 private const val TAG = "ReActLoop"
 private const val TOOL_START = "[TOOL_CALL]"
 private const val TOOL_END   = "[/TOOL_CALL]"
-private val TOOL_CALL_RE = Regex("""\[TOOL_CALL\](.*?)\[/TOOL_CALL\]""", RegexOption.DOT_MATCHES_ALL)
+internal const val MAX_TOOL_RESULT_CHARS = 4000
+internal val TOOL_CALL_RE = Regex("""\[TOOL_CALL\](.*?)\[/TOOL_CALL\]""", RegexOption.DOT_MATCHES_ALL)
+
+internal fun capToolResult(content: String): String =
+    if (content.length > MAX_TOOL_RESULT_CHARS) {
+        content.take(MAX_TOOL_RESULT_CHARS) + "\n...[truncated]"
+    } else {
+        content
+    }
 
 class ReActLoop(private val engine: LlamaEngine) {
 
@@ -121,18 +129,19 @@ class ReActLoop(private val engine: LlamaEngine) {
                             Regex("""\[TOOL_CALL\].*?\[/TOOL_CALL\]""", RegexOption.DOT_MATCHES_ALL),
                             "[tool result suppressed]"
                         )
-                        "Tool result:\n$sanitized"
+                        "Tool result:\n${capToolResult(sanitized)}"
                     }
                     is ToolResult.Error -> "Tool error [${toolResult.errorCode}]: ${toolResult.message}"
                     is ToolResult.NeedsConfirmation -> {
                         emit("\n⚠ ${toolResult.title}: ${toolResult.message}\n")
-                        val confirmed = confirmBroker.request()  // suspends until UI responds
+                        // Waits up to the broker's timeout for the UI to respond; times out to denial.
+                        val confirmed = confirmBroker.request()
                         if (confirmed) {
                             // Retry with confirmed flag in args
                             val confirmedArgs = toolResult.jsonData.ifBlank { "{\"confirmed\":true}" }
                             val retryResult = registry.execute(context, toolName, confirmedArgs)
                             when (retryResult) {
-                                is ToolResult.Success -> "Tool result:\n${retryResult.content}"
+                                is ToolResult.Success -> "Tool result:\n${capToolResult(retryResult.content)}"
                                 is ToolResult.Error   -> "Tool error [${retryResult.errorCode}]: ${retryResult.message}"
                                 else                  -> "Tool result unavailable"
                             }
