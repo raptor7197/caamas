@@ -117,22 +117,29 @@ jobs:
           ASSETS="$DEBUG_APK"
           [ -f "$RELEASE_APK" ] && ASSETS="$ASSETS $RELEASE_APK"
 
-          gh release create "$TAG" $ASSETS \
-            --title "CAAMAS $TAG" \
-            --notes "$(cat <<'NOTES'
-          ## What's new in $TAG
+          NOTES="## What's new in ${TAG}
 
-          ### Features
-          - **Chat history** — history icon opens session list with timestamps; tap to resume any session; sessions auto-named from first message
-          - **Tool calls fixed** — selective schema injection (only schemas relevant to query injected); frees ~700 tokens of context window for generation
-          - **Higher generation limits** — 1024 tokens (small model), 1536 tokens (large model)
+### Features
+- **Chat history** — history icon opens session list with timestamps; tap to resume any session; sessions auto-named from first message
+- **Tool calls fixed** — selective schema injection (only schemas relevant to query injected); frees ~700 tokens of context window for generation
+- **Higher generation limits** — 1024 tokens (small model), 1536 tokens (large model)
 
-          ### Bug fixes
-          - SQLCipher DB encryption added in v0.1.0 required clean install on upgrade (documented)
+### Bug fixes
+- SQLCipher DB encryption added in v0.1.0 required clean install on upgrade (documented)
+- whisper.cpp upgraded v1.7.4 → v1.9.1 to fix ggml API mismatch with llama.cpp b9530
 
-          ### Notes
-          - One local model loads based on device RAM: ≥6 GB free → Llama 3.1 8B, else Qwen 2.5 1.5B
-          - Configure a cloud provider in Settings for best tool reliability
-          - Release APK requires signing secrets; debug APK attached for sideloading
-          NOTES
-          )"
+### Notes
+- One local model loads based on device RAM: ≥6 GB free → Llama 3.1 8B, else Qwen 2.5 1.5B
+- Configure a cloud provider in Settings for best tool reliability
+- Release APK requires signing secrets; debug APK attached for sideloading"
+
+          if gh release view "$TAG" --repo "${{ github.repository }}" &>/dev/null; then
+            gh release edit "$TAG" --repo "${{ github.repository }}" \
+              --title "CAAMAS ${TAG}" --notes "$NOTES"
+            for asset in $ASSETS; do
+              gh release upload "$TAG" "$asset" --repo "${{ github.repository }}" --clobber
+            done
+          else
+            gh release create "$TAG" $ASSETS \
+              --title "CAAMAS ${TAG}" --notes "$NOTES"
+          fi
