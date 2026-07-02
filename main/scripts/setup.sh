@@ -7,7 +7,7 @@ set -euo pipefail
 
 # ── Config ───────────────────────────────────────────────────────────────────
 LLAMA_TAG="b9530"          # Pin to a stable llama.cpp release
-WHISPER_TAG="v1.7.4"       # Pin to a stable whisper.cpp release
+WHISPER_TAG="v1.9.1"       # Pin to a stable whisper.cpp release (v1.9.1 required for ggml API compat with llama.cpp b9530)
 
 LLAMA_DIR="android/app/src/main/cpp/third_party/llama.cpp"
 WHISPER_DIR="android/app/src/main/cpp/third_party/whisper.cpp"

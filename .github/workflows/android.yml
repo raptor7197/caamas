@@ -50,7 +50,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: main/android/app/src/main/cpp/third_party
-          key: third-party-llama-b9530-whisper-v1.7.4
+          key: third-party-llama-b9530-whisper-v1.9.1
 
       - name: Fetch llama.cpp and whisper.cpp
         working-directory: main
