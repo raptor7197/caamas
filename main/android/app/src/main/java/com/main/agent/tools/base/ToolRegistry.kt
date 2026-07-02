@@ -46,6 +46,34 @@ class ToolRegistry(
     fun allSchemas(): String =
         tools.values.joinToString(prefix = "[", postfix = "]", separator = ",") { it.schema }
 
+    fun schemasForQuery(query: String): String {
+        val lower = query.lowercase()
+        val relevant = tools.values.filter { tool ->
+            when (tool.name) {
+                "calculator"      -> Regex("""\d|calc|math|percent|convert|how many|how much""").containsMatchIn(lower)
+                "get_weather"     -> listOf("weather", "temperature", "forecast", "rain", "snow", "hot", "cold", "humid").any { it in lower }
+                "open_maps"       -> listOf("map", "direction", "navigate", "where is", "near", "route").any { it in lower }
+                "web_search"      -> listOf("search", "find", "who is", "what is", "when did", "latest", "news", "look up").any { it in lower }
+                "browse_url"      -> listOf("http", "url", "website", "open link", "visit", "open page").any { it in lower }
+                "read_rag"        -> listOf("document", "file", "notes", "pdf", "folder", "my files").any { it in lower }
+                "device_settings" -> listOf("setting", "wifi", "bluetooth", "volume", "brightness", "notification").any { it in lower }
+                "take_screenshot" -> listOf("screenshot", "capture screen", "screen shot").any { it in lower }
+                "clipboard"       -> listOf("clipboard", "copy", "paste", "copied").any { it in lower }
+                "take_photo"      -> listOf("photo", "picture", "camera", "selfie", "take a pic").any { it in lower }
+                "search_contacts" -> listOf("contact", "phone number", "email of", "number of").any { it in lower }
+                "send_sms"        -> listOf("sms", "text message", "send message", "send a text").any { it in lower }
+                "make_call"       -> listOf("call", "phone", "dial", "ring", "make a call").any { it in lower }
+                "calendar"        -> listOf("calendar", "schedule", "remind", "alarm", "event", "appointment", "meeting").any { it in lower }
+                "download_file"   -> listOf("download", "save file", "fetch url").any { it in lower }
+                else              -> true
+            }
+        }
+        val finalSet = relevant.ifEmpty {
+            listOfNotNull(tools["web_search"], tools["calculator"], tools["get_weather"])
+        }
+        return finalSet.joinToString(prefix = "[", postfix = "]", separator = ",") { it.schema }
+    }
+
     suspend fun execute(context: Context, toolName: String, argsJson: String): ToolResult {
         val tool = tools[toolName]
             ?: return ToolResult.Error("Unknown tool: $toolName", ToolResult.ErrorCode.NOT_FOUND)

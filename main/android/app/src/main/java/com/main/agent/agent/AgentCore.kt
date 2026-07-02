@@ -64,7 +64,7 @@ class AgentCore(
         Log.d(TAG, "Processing: ${userMessage.take(80)}")
 
         // 1. Build conversation with tools schema injected into system prompt
-        val toolSchemas  = toolRegistry.allSchemas()
+        val toolSchemas  = toolRegistry.schemasForQuery(userMessage)
         val fullSystem   = "$SYSTEM_PROMPT\n\nAvailable tools:\n$toolSchemas"
         val messages     = buildList {
             add("system"    to fullSystem)

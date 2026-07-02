@@ -20,4 +20,7 @@ interface MessageDao {
 
     @Query("DELETE FROM messages")
     suspend fun deleteAll()
+
+    @Query("SELECT content FROM messages WHERE sessionId=:sessionId AND role='user' ORDER BY timestamp ASC LIMIT 1")
+    suspend fun firstUserMessage(sessionId: Long): String?
 }

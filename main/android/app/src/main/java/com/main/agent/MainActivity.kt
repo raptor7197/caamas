@@ -177,8 +177,15 @@ class MainActivity : ComponentActivity() {
                     Screen.Chat      -> ChatScreen(
                         viewModel      = chatVm,
                         onOpenSettings = { screen = Screen.Settings },
+                        onOpenHistory  = { screen = Screen.History },
                     )
                     Screen.Settings  -> SettingsScreen(prefs = prefs, onBack = { screen = Screen.Chat })
+                    Screen.History   -> ChatHistoryScreen(
+                        viewModel    = chatVm,
+                        onOpenSession = { screen = Screen.Chat },
+                        onNewChat    = { screen = Screen.Chat },
+                        onBack       = { screen = Screen.Chat },
+                    )
                 }
             }
         }
@@ -272,7 +279,7 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
-    private enum class Screen { Splash, Onboarding, Loading, StoragePermission, Chat, Settings }
+    private enum class Screen { Splash, Onboarding, Loading, StoragePermission, Chat, Settings, History }
 }
 
 @Composable

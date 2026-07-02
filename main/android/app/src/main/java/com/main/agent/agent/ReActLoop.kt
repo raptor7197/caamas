@@ -46,7 +46,7 @@ class ReActLoop(private val engine: LlamaEngine) {
             when (route) {
                 is Route.LocalSmall, is Route.LocalLarge -> {
                     val prompt  = engine.applyChatTemplate(mutableMessages, addAssistant = true)
-                    val maxTok  = if (route is Route.LocalLarge) 1024 else 512
+                    val maxTok  = if (route is Route.LocalLarge) 1536 else 1024
 
                     engine.inference(prompt, maxTokens = maxTok).collect { token ->
                         responseSb.append(token)

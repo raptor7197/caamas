@@ -8,6 +8,7 @@ import com.main.agent.agent.Route
 import com.main.agent.agent.SessionManager
 import com.main.agent.persistence.AppDatabase
 import com.main.agent.persistence.entities.MessageEntity
+import com.main.agent.persistence.entities.SessionEntity
 import com.main.agent.voice.VoicePipeline
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
@@ -48,7 +49,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
+    val allSessions: Flow<List<SessionEntity>> = db.sessionDao().allSessions()
+
     private var generateJob: Job? = null
+    private var sessionCollectionJob: Job? = null
     private var _voicePipeline: VoicePipeline? = null
 
     private var prevCpuTotal = 0L
@@ -109,12 +113,44 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private var sessionLoaded = false
-
     fun loadOrCreateSession() {
-        if (sessionLoaded) return
-        sessionLoaded = true
-        viewModelScope.launch {
+        if (_uiState.value.sessionId >= 0) return
+        sessionCollectionJob?.cancel()
+        sessionCollectionJob = viewModelScope.launch {
+            val sessionId = sessionManager.newSession()
+            _uiState.update { it.copy(sessionId = sessionId) }
+            sessionManager.messagesFlow(sessionId).collect { msgs ->
+                _uiState.update { it.copy(messages = msgs) }
+            }
+        }
+    }
+
+    fun switchToSession(sessionId: Long) {
+        generateJob?.cancel()
+        sessionCollectionJob?.cancel()
+        _uiState.update { it.copy(
+            messages = emptyList(),
+            streamingText = "",
+            isGenerating = false,
+            sessionId = sessionId,
+        )}
+        sessionCollectionJob = viewModelScope.launch {
+            sessionManager.messagesFlow(sessionId).collect { msgs ->
+                _uiState.update { it.copy(messages = msgs) }
+            }
+        }
+    }
+
+    fun startNewChat() {
+        generateJob?.cancel()
+        sessionCollectionJob?.cancel()
+        _uiState.update { it.copy(
+            messages = emptyList(),
+            streamingText = "",
+            isGenerating = false,
+            sessionId = -1L,
+        )}
+        sessionCollectionJob = viewModelScope.launch {
             val sessionId = sessionManager.newSession()
             _uiState.update { it.copy(sessionId = sessionId) }
             sessionManager.messagesFlow(sessionId).collect { msgs ->
@@ -141,7 +177,11 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         generateJob?.cancel()
 
         generateJob = viewModelScope.launch {
+            val isFirstUserMessage = _uiState.value.messages.none { it.role == "user" }
             sessionManager.saveMessage(sessionId, "user", trimmed)
+            if (isFirstUserMessage) {
+                sessionManager.renameSession(sessionId, trimmed.take(50))
+            }
 
             val history = sessionManager.getHistory(sessionId)
                 .filter { it.first != "system" }
@@ -182,7 +222,6 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     fun clearError() = _uiState.update { it.copy(error = null) }
 
-    /** Called by the UI when the user taps Confirm or Deny on a tool confirmation dialog. */
     fun confirmAction(confirmed: Boolean) {
         _agentCore?.confirmBroker?.resolve(confirmed)
         _uiState.update { it.copy(awaitingConfirm = null) }

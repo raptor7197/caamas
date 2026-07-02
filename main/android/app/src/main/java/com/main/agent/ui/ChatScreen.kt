@@ -14,6 +14,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
@@ -44,8 +45,9 @@ import com.main.agent.voice.VoicePipeline
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
-    viewModel:     ChatViewModel = viewModel(),
+    viewModel:      ChatViewModel = viewModel(),
     onOpenSettings: () -> Unit,
+    onOpenHistory:  () -> Unit = {},
 ) {
     val uiState    by viewModel.uiState.collectAsState()
     val listState  = rememberLazyListState()
@@ -148,6 +150,9 @@ fun ChatScreen(
                         }
                     },
                     actions = {
+                        IconButton(onClick = onOpenHistory) {
+                            Icon(Icons.Default.History, "History", tint = AgentPaper)
+                        }
                         IconButton(onClick = onOpenSettings) {
                             Icon(Icons.Default.Settings, "Settings", tint = AgentPaper)
                         }

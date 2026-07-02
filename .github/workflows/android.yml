@@ -3,6 +3,7 @@ name: Android CI
 on:
   push:
     branches: [main]
+    tags:     ['v*']
   pull_request:
     branches: [main]
 
@@ -13,6 +14,8 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -64,21 +67,21 @@ jobs:
         working-directory: main/android
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Upload debug APK
+      - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-${{ github.sha }}
           path: main/android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 14
 
-      # ── Release (main only, when signing secrets exist) ───────────────────
+      # ── Release APK (main branch + tag pushes, requires signing secrets) ──
       - name: Build release APK
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
         working-directory: main/android
         env:
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS:      ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD:   ${{ secrets.KEY_PASSWORD }}
         run: |
           if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
             echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/keystore.jks
@@ -89,14 +92,47 @@ jobs:
               -Pandroid.injected.signing.key.password=$KEY_PASSWORD \
               --no-daemon --stacktrace
           else
-            echo "Skipping release build: KEYSTORE_BASE64 secret not configured"
+            echo "Skipping signed release: KEYSTORE_BASE64 secret not set"
           fi
 
-      - name: Upload release APK
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      - name: Upload release APK artifact
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
         uses: actions/upload-artifact@v4
         with:
           name: app-release-${{ github.sha }}
           path: main/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: ignore
           retention-days: 30
+
+      # ── GitHub Release (tag pushes only) ──────────────────────────────────
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          DEBUG_APK="main/android/app/build/outputs/apk/debug/app-debug.apk"
+          RELEASE_APK="main/android/app/build/outputs/apk/release/app-release.apk"
+
+          ASSETS="$DEBUG_APK"
+          [ -f "$RELEASE_APK" ] && ASSETS="$ASSETS $RELEASE_APK"
+
+          gh release create "$TAG" $ASSETS \
+            --title "CAAMAS $TAG" \
+            --notes "$(cat <<'NOTES'
+          ## What's new in $TAG
+
+          ### Features
+          - **Chat history** — history icon opens session list with timestamps; tap to resume any session; sessions auto-named from first message
+          - **Tool calls fixed** — selective schema injection (only schemas relevant to query injected); frees ~700 tokens of context window for generation
+          - **Higher generation limits** — 1024 tokens (small model), 1536 tokens (large model)
+
+          ### Bug fixes
+          - SQLCipher DB encryption added in v0.1.0 required clean install on upgrade (documented)
+
+          ### Notes
+          - One local model loads based on device RAM: ≥6 GB free → Llama 3.1 8B, else Qwen 2.5 1.5B
+          - Configure a cloud provider in Settings for best tool reliability
+          - Release APK requires signing secrets; debug APK attached for sideloading
+          NOTES
+          )"
