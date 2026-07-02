@@ -11,6 +11,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import com.main.agent.tools.base.buildJsonString
 
+private val PHONE_RE = Regex("""^[+]?[\d\s\-().]{7,20}$""")
+
 class SmsTool : Tool {
     override val name        = "send_sms"
     override val description = "Send an SMS or read the SMS inbox (sender only, no body)."
@@ -31,6 +33,12 @@ class SmsTool : Tool {
                     ?: return ToolResult.Error("Missing 'to' for send")
                 val msg = args["message"]?.jsonPrimitive?.content?.trim()
                     ?: return ToolResult.Error("Missing 'message' for send")
+                if (!PHONE_RE.matches(to)) {
+                    return ToolResult.Error("Invalid phone number format: '$to'")
+                }
+                if (msg.length > 1600) {
+                    return ToolResult.Error("Message too long (max 1600 chars)")
+                }
                 val confirmed = args["confirmed"]?.jsonPrimitive?.content?.toBoolean() ?: false
 
                 if (!confirmed) {
@@ -49,6 +57,8 @@ class SmsTool : Tool {
                         }
                         smsManager.sendTextMessage(to, null, msg, null, null)
                         ToolResult.Success("SMS sent to $to")
+                    } catch (e: SecurityException) {
+                        ToolResult.Error("SMS permission denied — grant SEND_SMS in Settings", ToolResult.ErrorCode.PERMISSION_DENIED)
                     } catch (e: Exception) {
                         ToolResult.Error("Failed to send SMS: ${e.message}")
                     }

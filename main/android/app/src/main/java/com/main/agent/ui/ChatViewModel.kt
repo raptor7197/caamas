@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.main.agent.agent.AgentCore
 import com.main.agent.agent.Route
 import com.main.agent.agent.SessionManager
+import com.main.agent.agent.TOOL_EVT_PFX
+import com.main.agent.agent.TOOL_EVT_SFX
 import com.main.agent.persistence.AppDatabase
 import com.main.agent.persistence.entities.MessageEntity
 import com.main.agent.persistence.entities.SessionEntity
@@ -14,10 +16,13 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
+data class ToolCallItem(val name: String, val done: Boolean = false, val isError: Boolean = false)
+
 data class ChatUiState(
     val messages:        List<MessageEntity> = emptyList(),
     val isGenerating:    Boolean             = false,
     val streamingText:   String              = "",
+    val activeToolCalls: List<ToolCallItem>  = emptyList(),
     val sessionId:       Long                = -1L,
     val error:           String?             = null,
     val awaitingConfirm: ConfirmRequest?     = null,
@@ -186,13 +191,31 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             val history = sessionManager.getHistory(sessionId)
                 .filter { it.first != "system" }
 
-            _uiState.update { it.copy(isGenerating = true, streamingText = "", error = null) }
+            _uiState.update { it.copy(isGenerating = true, streamingText = "", activeToolCalls = emptyList(), error = null) }
 
             val sb = StringBuilder()
             try {
                 core.respond(trimmed, history, overrideRoute = _uiState.value.selectedRoute).collect { token ->
-                    sb.append(token)
-                    _uiState.update { it.copy(streamingText = sb.toString()) }
+                    if (token.startsWith(TOOL_EVT_PFX)) {
+                        val content = token.removePrefix(TOOL_EVT_PFX).removeSuffix(TOOL_EVT_SFX)
+                        when {
+                            content.startsWith("TOOL:") -> {
+                                val name = content.removePrefix("TOOL:")
+                                _uiState.update { s -> s.copy(activeToolCalls = s.activeToolCalls + ToolCallItem(name)) }
+                            }
+                            content.startsWith("DONE:") -> {
+                                val name = content.removePrefix("DONE:")
+                                _uiState.update { s -> s.copy(activeToolCalls = s.activeToolCalls.map { if (it.name == name && !it.done) it.copy(done = true) else it }) }
+                            }
+                            content.startsWith("ERR:") -> {
+                                val name = content.removePrefix("ERR:")
+                                _uiState.update { s -> s.copy(activeToolCalls = s.activeToolCalls.map { if (it.name == name && !it.done) it.copy(done = true, isError = true) else it }) }
+                            }
+                        }
+                    } else {
+                        sb.append(token)
+                        _uiState.update { it.copy(streamingText = sb.toString()) }
+                    }
                 }
                 val full = sb.toString()
                 if (full.isNotBlank()) {
@@ -201,7 +224,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: Exception) {
                 _uiState.update { it.copy(error = "Generation error: ${e.message}") }
             } finally {
-                _uiState.update { it.copy(isGenerating = false, streamingText = "") }
+                _uiState.update { it.copy(isGenerating = false, streamingText = "", activeToolCalls = emptyList()) }
             }
         }
     }
@@ -209,7 +232,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     fun cancelGeneration() {
         generateJob?.cancel()
         _voicePipeline?.cancel()
-        _uiState.update { it.copy(isGenerating = false, streamingText = "") }
+        _uiState.update { it.copy(isGenerating = false, streamingText = "", activeToolCalls = emptyList()) }
     }
 
     fun startVoiceListening() {

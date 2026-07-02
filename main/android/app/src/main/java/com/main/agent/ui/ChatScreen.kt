@@ -14,6 +14,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Settings
@@ -191,11 +193,24 @@ fun ChatScreen(
                     MessageBubble(msg)
                 }
 
+                if (uiState.activeToolCalls.isNotEmpty()) {
+                    item {
+                        Column(
+                            modifier = Modifier.padding(start = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            uiState.activeToolCalls.forEach { call ->
+                                ToolCallChip(name = call.name, done = call.done, isError = call.isError)
+                            }
+                        }
+                    }
+                }
+
                 if (uiState.streamingText.isNotEmpty()) {
                     item { StreamingBubble(text = uiState.streamingText) }
                 }
 
-                if (uiState.isGenerating && uiState.streamingText.isEmpty()) {
+                if (uiState.isGenerating && uiState.streamingText.isEmpty() && uiState.activeToolCalls.isEmpty()) {
                     item { ThinkingIndicator() }
                 }
             }
@@ -364,6 +379,28 @@ private fun MessageBubble(msg: MessageEntity) {
                 fontSize = 14.sp,
                 lineHeight = 20.sp,
             )
+        }
+    }
+}
+
+@Composable
+private fun ToolCallChip(name: String, done: Boolean, isError: Boolean) {
+    Surface(
+        shape  = RoundedCornerShape(50),
+        color  = ToolChip,
+        border = BorderStroke(1.dp, AgentLine),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            when {
+                !done    -> CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp, color = AgentPeachDeep)
+                isError  -> Icon(Icons.Default.Close, null, Modifier.size(12.dp), tint = MaterialTheme.colorScheme.error)
+                else     -> Icon(Icons.Default.Check, null, Modifier.size(12.dp), tint = AgentInk)
+            }
+            Text(name, fontSize = 12.sp, color = AgentInk, fontWeight = FontWeight.Medium)
         }
     }
 }

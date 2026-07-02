@@ -17,12 +17,22 @@ private const val TOOL_END   = "[/TOOL_CALL]"
 internal const val MAX_TOOL_RESULT_CHARS = 4000
 internal val TOOL_CALL_RE = Regex("""\[TOOL_CALL\](.*?)\[/TOOL_CALL\]""", RegexOption.DOT_MATCHES_ALL)
 
+// Sentinel tokens for tool lifecycle events (STX/ETX control chars — never appear in model output)
+internal const val TOOL_EVT_PFX = ""
+internal const val TOOL_EVT_SFX = ""
+
 internal fun capToolResult(content: String): String =
     if (content.length > MAX_TOOL_RESULT_CHARS) {
         content.take(MAX_TOOL_RESULT_CHARS) + "\n...[truncated]"
     } else {
         content
     }
+
+// Strip chars that could be mistaken for sentinel tokens or trigger re-injection
+private fun sanitizeToolContent(raw: String): String = raw
+    .replace(TOOL_EVT_PFX, "")
+    .replace(TOOL_EVT_SFX, "")
+    .replace(Regex("""\[TOOL_CALL\].*?\[/TOOL_CALL\]""", RegexOption.DOT_MATCHES_ALL), "[suppressed]")
 
 class ReActLoop(private val engine: LlamaEngine) {
 
@@ -46,7 +56,7 @@ class ReActLoop(private val engine: LlamaEngine) {
             when (route) {
                 is Route.LocalSmall, is Route.LocalLarge -> {
                     val prompt  = engine.applyChatTemplate(mutableMessages, addAssistant = true)
-                    val maxTok  = if (route is Route.LocalLarge) 1536 else 1024
+                    val maxTok  = if (route is Route.LocalLarge) 2048 else 1536
 
                     engine.inference(prompt, maxTokens = maxTok).collect { token ->
                         responseSb.append(token)
@@ -115,37 +125,51 @@ class ReActLoop(private val engine: LlamaEngine) {
                     val args = obj["args"]?.jsonObject?.toString() ?: "{}"
                     name to args
                 } catch (e: Exception) {
-                    emit("\n⚠ Could not parse tool call: ${e.message}\n")
+                    emit("\n⚠ Malformed tool call — asking model to retry...\n")
+                    val safeErr = e.message?.replace(Regex("[\\u0000-\\u001F]"), "")?.take(200) ?: "unknown"
+                    mutableMessages.add("user" to "Your tool call JSON was malformed: $safeErr. Output a valid [TOOL_CALL]{\"name\":\"...\",\"args\":{...}}[/TOOL_CALL].")
                     continue
                 }
 
-                emit("\n⚙ Running tool: $toolName…\n")
+                emit("${TOOL_EVT_PFX}TOOL:$toolName${TOOL_EVT_SFX}")
                 val toolResult = registry.execute(context, toolName, toolArgs)
                 Log.d(TAG, "Tool result: ${toolResult.toLogString()}")
 
                 val resultContent = when (toolResult) {
                     is ToolResult.Success -> {
-                        val sanitized = toolResult.content.replace(
-                            Regex("""\[TOOL_CALL\].*?\[/TOOL_CALL\]""", RegexOption.DOT_MATCHES_ALL),
-                            "[tool result suppressed]"
-                        )
-                        "Tool result:\n${capToolResult(sanitized)}"
+                        emit("${TOOL_EVT_PFX}DONE:$toolName${TOOL_EVT_SFX}")
+                        "Tool result:\n${capToolResult(sanitizeToolContent(toolResult.content))}"
                     }
-                    is ToolResult.Error -> "Tool error [${toolResult.errorCode}]: ${toolResult.message}"
+                    is ToolResult.Error -> {
+                        emit("${TOOL_EVT_PFX}ERR:$toolName${TOOL_EVT_SFX}")
+                        "Tool error [${toolResult.errorCode}]: ${sanitizeToolContent(toolResult.message)}"
+                    }
                     is ToolResult.NeedsConfirmation -> {
                         emit("\n⚠ ${toolResult.title}: ${toolResult.message}\n")
-                        // Waits up to the broker's timeout for the UI to respond; times out to denial.
                         val confirmed = confirmBroker.request()
                         if (confirmed) {
-                            // Retry with confirmed flag in args
-                            val confirmedArgs = toolResult.jsonData.ifBlank { "{\"confirmed\":true}" }
+                            val confirmedArgs = try {
+                                val argsObj = Json.parseToJsonElement(toolArgs).jsonObject.toMutableMap()
+                                argsObj["confirmed"] = JsonPrimitive(true)
+                                JsonObject(argsObj).toString()
+                            } catch (_: Exception) { toolResult.jsonData.ifBlank { "{\"confirmed\":true}" } }
                             val retryResult = registry.execute(context, toolName, confirmedArgs)
                             when (retryResult) {
-                                is ToolResult.Success -> "Tool result:\n${capToolResult(retryResult.content)}"
-                                is ToolResult.Error   -> "Tool error [${retryResult.errorCode}]: ${retryResult.message}"
-                                else                  -> "Tool result unavailable"
+                                is ToolResult.Success -> {
+                                    emit("${TOOL_EVT_PFX}DONE:$toolName${TOOL_EVT_SFX}")
+                                    "Tool result:\n${capToolResult(sanitizeToolContent(retryResult.content))}"
+                                }
+                                is ToolResult.Error -> {
+                                    emit("${TOOL_EVT_PFX}ERR:$toolName${TOOL_EVT_SFX}")
+                                    "Tool error [${retryResult.errorCode}]: ${sanitizeToolContent(retryResult.message)}"
+                                }
+                                else -> {
+                                    emit("${TOOL_EVT_PFX}ERR:$toolName${TOOL_EVT_SFX}")
+                                    "Tool result unavailable"
+                                }
                             }
                         } else {
+                            emit("${TOOL_EVT_PFX}ERR:$toolName${TOOL_EVT_SFX}")
                             "User denied confirmation for $toolName — skipping."
                         }
                     }

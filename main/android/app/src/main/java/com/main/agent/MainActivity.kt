@@ -79,12 +79,17 @@ class MainActivity : ComponentActivity() {
         modelManager?.updateModelsDir()
     }
 
+    private val requestDevicePermissions = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { /* tools report PERMISSION_DENIED if still denied; no action needed here */ }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
         checkStoragePermission()
+        requestDangerousPermissions()
 
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             "session_retention",
@@ -252,6 +257,22 @@ class MainActivity : ComponentActivity() {
             whisperSTT.loadModel(whisperFile.absolutePath)
             val tts = TTSEngine(this)
             voicePipeline = VoicePipeline(this, whisperSTT, tts, agentCore!!, lifecycleScope)
+        }
+    }
+
+    private fun requestDangerousPermissions() {
+        val needed = buildList {
+            add(Manifest.permission.RECORD_AUDIO)
+            add(Manifest.permission.READ_CONTACTS)
+            add(Manifest.permission.READ_SMS)
+            add(Manifest.permission.SEND_SMS)
+            add(Manifest.permission.READ_CALENDAR)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+        if (needed.isNotEmpty()) {
+            requestDevicePermissions.launch(needed.toTypedArray())
         }
     }
 
