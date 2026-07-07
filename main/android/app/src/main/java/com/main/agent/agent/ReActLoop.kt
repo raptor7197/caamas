@@ -53,58 +53,56 @@ class ReActLoop(private val engine: LlamaEngine) {
             val displayBuffer = StringBuilder()
             var inToolCall    = false
 
-            when (route) {
+            // Same token stream for local and cloud routes from here — both must go through
+            // the same buffering so a [TOOL_CALL]...[/TOOL_CALL] split across stream chunks
+            // (routine for cloud SSE deltas) never leaks into the display or gets truncated.
+            val tokenFlow = when (route) {
                 is Route.LocalSmall, is Route.LocalLarge -> {
-                    val prompt  = engine.applyChatTemplate(mutableMessages, addAssistant = true)
-                    val maxTok  = if (route is Route.LocalLarge) 2048 else 1536
-
-                    engine.inference(prompt, maxTokens = maxTok).collect { token ->
-                        responseSb.append(token)
-                        displayBuffer.append(token)
-                        val pending = displayBuffer.toString()
-
-                        when {
-                            inToolCall -> {
-                                if (pending.contains(TOOL_END)) {
-                                    inToolCall = false
-                                    val after = pending.substringAfter(TOOL_END)
-                                    displayBuffer.clear()
-                                    displayBuffer.append(after)
-                                }
-                                // inside tool call — don't emit
-                            }
-                            pending.contains(TOOL_START) -> {
-                                val before = pending.substringBefore(TOOL_START)
-                                if (before.isNotEmpty()) emit(before)
-                                inToolCall = true
-                                displayBuffer.clear()
-                                displayBuffer.append(TOOL_START)
-                                displayBuffer.append(pending.substringAfter(TOOL_START))
-                            }
-                            else -> {
-                                // hold back enough chars to catch a split tag at stream boundary
-                                val holdLen = TOOL_START.length - 1
-                                if (pending.length > holdLen) {
-                                    val safe = pending.dropLast(holdLen)
-                                    emit(safe)
-                                    displayBuffer.delete(0, safe.length)
-                                }
-                            }
-                        }
-                    }
-
-                    // flush anything left that isn't inside a tool call
-                    val remaining = displayBuffer.toString()
-                    if (remaining.isNotEmpty() && !inToolCall) emit(remaining)
+                    val prompt = engine.applyChatTemplate(mutableMessages, addAssistant = true)
+                    val maxTok = if (route is Route.LocalLarge) 2048 else 1536
+                    engine.inference(prompt, maxTokens = maxTok)
                 }
+                is Route.Cloud -> route.provider.complete(mutableMessages, maxTokens = 2048)
+            }
 
-                is Route.Cloud -> {
-                    route.provider.complete(mutableMessages).collect { token ->
-                        responseSb.append(token)
-                        if (!token.startsWith(TOOL_START)) emit(token)
+            tokenFlow.collect { token ->
+                responseSb.append(token)
+                displayBuffer.append(token)
+                val pending = displayBuffer.toString()
+
+                when {
+                    inToolCall -> {
+                        if (pending.contains(TOOL_END)) {
+                            inToolCall = false
+                            val after = pending.substringAfter(TOOL_END)
+                            displayBuffer.clear()
+                            displayBuffer.append(after)
+                        }
+                        // inside tool call — don't emit
+                    }
+                    pending.contains(TOOL_START) -> {
+                        val before = pending.substringBefore(TOOL_START)
+                        if (before.isNotEmpty()) emit(before)
+                        inToolCall = true
+                        displayBuffer.clear()
+                        displayBuffer.append(TOOL_START)
+                        displayBuffer.append(pending.substringAfter(TOOL_START))
+                    }
+                    else -> {
+                        // hold back enough chars to catch a split tag at stream boundary
+                        val holdLen = TOOL_START.length - 1
+                        if (pending.length > holdLen) {
+                            val safe = pending.dropLast(holdLen)
+                            emit(safe)
+                            displayBuffer.delete(0, safe.length)
+                        }
                     }
                 }
             }
+
+            // flush anything left that isn't inside a tool call
+            val remaining = displayBuffer.toString()
+            if (remaining.isNotEmpty() && !inToolCall) emit(remaining)
 
             val response = responseSb.toString()
             mutableMessages.add("assistant" to response)

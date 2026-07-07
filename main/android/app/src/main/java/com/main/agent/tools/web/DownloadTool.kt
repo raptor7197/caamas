@@ -5,6 +5,8 @@ import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import com.main.agent.tools.base.Tool
 import com.main.agent.tools.base.ToolResult
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
@@ -36,33 +38,35 @@ class DownloadTool(private val agentFolderUri: String?) : Tool {
         if (validation != null) return validation
 
         return try {
-            val resp = client.newCall(Request.Builder().url(url).build()).execute()
-            if (!resp.isSuccessful) {
-                return ToolResult.Error("HTTP ${resp.code} for $url",
-                    ToolResult.ErrorCode.NETWORK_ERROR)
+            withContext(Dispatchers.IO) {
+                val resp = client.newCall(Request.Builder().url(url).build()).execute()
+                if (!resp.isSuccessful) {
+                    return@withContext ToolResult.Error("HTTP ${resp.code} for $url",
+                        ToolResult.ErrorCode.NETWORK_ERROR)
+                }
+
+                val body = resp.body ?: return@withContext ToolResult.Error("Empty response body")
+
+                val filename = filenameHint ?: extractFilename(resp)
+                val folderUri = agentFolderUri
+                if (folderUri.isNullOrBlank()) {
+                    return@withContext ToolResult.Error("Agent folder not set. Configure it in Settings.")
+                }
+
+                val folder = DocumentFile.fromTreeUri(context, Uri.parse(folderUri))
+                    ?: return@withContext ToolResult.Error("Cannot access agent folder",
+                        ToolResult.ErrorCode.PERMISSION_DENIED)
+
+                val safeName = sanitizeFilename(filename)
+                val file = folder.createFile(body.contentType()?.type ?: "application/octet-stream", safeName)
+                    ?: return@withContext ToolResult.Error("Failed to create file in agent folder")
+
+                context.contentResolver.openOutputStream(file.uri)?.use { out ->
+                    out.write(body.bytes())
+                } ?: return@withContext ToolResult.Error("Failed to write file")
+
+                ToolResult.Success("Downloaded $safeName (${body.contentLength()} bytes)")
             }
-
-            val body = resp.body ?: return ToolResult.Error("Empty response body")
-
-            val filename = filenameHint ?: extractFilename(resp)
-            val folderUri = agentFolderUri
-            if (folderUri.isNullOrBlank()) {
-                return ToolResult.Error("Agent folder not set. Configure it in Settings.")
-            }
-
-            val folder = DocumentFile.fromTreeUri(context, Uri.parse(folderUri))
-                ?: return ToolResult.Error("Cannot access agent folder",
-                    ToolResult.ErrorCode.PERMISSION_DENIED)
-
-            val safeName = sanitizeFilename(filename)
-            val file = folder.createFile(body.contentType()?.type ?: "application/octet-stream", safeName)
-                ?: return ToolResult.Error("Failed to create file in agent folder")
-
-            context.contentResolver.openOutputStream(file.uri)?.use { out ->
-                out.write(body.bytes())
-            } ?: return ToolResult.Error("Failed to write file")
-
-            ToolResult.Success("Downloaded $safeName (${body.contentLength()} bytes)")
         } catch (e: Exception) {
             ToolResult.Error("Download failed: ${e.message}",
                 ToolResult.ErrorCode.NETWORK_ERROR)

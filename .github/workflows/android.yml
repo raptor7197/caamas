@@ -120,12 +120,15 @@ jobs:
           NOTES="## What's new in ${TAG}
 
 ### Features
-- **Chat history** — history icon opens session list with timestamps; tap to resume any session; sessions auto-named from first message
-- **Tool calls fixed** — selective schema injection (only schemas relevant to query injected); frees ~700 tokens of context window for generation
-- **Higher generation limits** — 1024 tokens (small model), 1536 tokens (large model)
+- Verbose ReAct system prompt with worked [TOOL_CALL] examples; malformed tool JSON now fed back to the model as a correction instead of silently dropped
+- Inline tool-call UI — chip shows spinner → checkmark/X as each tool runs
+- Runtime permission requests on first launch (mic, contacts, SMS, calendar, notifications)
 
 ### Bug fixes
-- SQLCipher DB encryption added in v0.1.0 required clean install on upgrade (documented)
+- Cloud provider tool calls (Anthropic/OpenAI/Mistral/Gemini/Ollama) were unreliable: raw \`[TOOL_CALL]\` JSON could leak into the chat UI, and the 1024-token default cut long calls off before the closing tag, dropping them silently. Cloud now shares the same buffering as local models and gets a 2048-token budget.
+- \`browse_url\` and \`download_file\` always failed with NetworkOnMainThreadException — both ran OkHttp on the calling thread instead of Dispatchers.IO.
+- \`take_screenshot\`'s \`save_to_folder\` option was advertised but ignored; screenshots now actually move into the configured agent folder.
+- SmsTool validates phone number format and caps message length; tool results are sanitized against sentinel/prompt injection before re-entering model context.
 - whisper.cpp upgraded v1.7.4 → v1.9.1 to fix ggml API mismatch with llama.cpp b9530
 
 ### Notes

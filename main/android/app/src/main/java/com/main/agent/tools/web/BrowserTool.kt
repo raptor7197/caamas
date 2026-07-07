@@ -3,6 +3,8 @@ package com.main.agent.tools.web
 import android.content.Context
 import com.main.agent.tools.base.Tool
 import com.main.agent.tools.base.ToolResult
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
@@ -45,26 +47,28 @@ class BrowserTool : Tool {
         if (validation != null) return validation
 
         return try {
-            val resp = client.newCall(Request.Builder().url(url).build()).execute()
-            if (!resp.isSuccessful) {
-                return ToolResult.Error("HTTP ${resp.code} for $url",
-                    ToolResult.ErrorCode.NETWORK_ERROR)
+            withContext(Dispatchers.IO) {
+                val resp = client.newCall(Request.Builder().url(url).build()).execute()
+                if (!resp.isSuccessful) {
+                    return@withContext ToolResult.Error("HTTP ${resp.code} for $url",
+                        ToolResult.ErrorCode.NETWORK_ERROR)
+                }
+
+                val contentType = resp.header("Content-Type", "") ?: ""
+                if (!contentType.contains("text/html", ignoreCase = true) &&
+                    !contentType.contains("text/plain", ignoreCase = true)) {
+                    return@withContext ToolResult.Error("Unsupported content type: $contentType")
+                }
+
+                val doc: Document = Jsoup.parse(resp.body!!.string(), url)
+                doc.select("script, style, nav, footer, header, iframe, noscript").remove()
+
+                val title   = doc.title().take(200)
+                val body    = doc.body()?.text()?.trim() ?: ""
+                val content = if (body.length <= maxChars) body else body.take(maxChars) + "\n[truncated]"
+
+                ToolResult.Success("Title: $title\n\n$content")
             }
-
-            val contentType = resp.header("Content-Type", "") ?: ""
-            if (!contentType.contains("text/html", ignoreCase = true) &&
-                !contentType.contains("text/plain", ignoreCase = true)) {
-                return ToolResult.Error("Unsupported content type: $contentType")
-            }
-
-            val doc: Document = Jsoup.parse(resp.body!!.string(), url)
-            doc.select("script, style, nav, footer, header, iframe, noscript").remove()
-
-            val title   = doc.title().take(200)
-            val body    = doc.body()?.text()?.trim() ?: ""
-            val content = if (body.length <= maxChars) body else body.take(maxChars) + "\n[truncated]"
-
-            ToolResult.Success("Title: $title\n\n$content")
         } catch (e: IllegalArgumentException) {
             ToolResult.Error("Invalid URL: ${e.message}")
         } catch (e: UnknownHostException) {

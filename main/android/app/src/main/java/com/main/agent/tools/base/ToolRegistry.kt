@@ -28,7 +28,7 @@ class ToolRegistry(
         put("read_rag",        ragTool)
 
         put("device_settings", SettingsTool())
-        put("take_screenshot", ScreenshotTool())
+        put("take_screenshot", ScreenshotTool(agentFolderUri))
         put("clipboard",       ClipboardTool())
 
         put("take_photo",       CameraTool())

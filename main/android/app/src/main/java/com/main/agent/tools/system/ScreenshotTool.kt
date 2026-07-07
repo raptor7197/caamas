@@ -8,6 +8,7 @@ import android.graphics.PixelFormat
 import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -15,17 +16,22 @@ import android.os.HandlerThread
 import android.view.WindowManager
 import android.view.WindowMetrics
 import androidx.appcompat.app.AppCompatActivity
+import androidx.documentfile.provider.DocumentFile
 import com.main.agent.tools.base.Tool
 import com.main.agent.tools.base.ToolResult
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.resume
 
-class ScreenshotTool : Tool {
+class ScreenshotTool(private val agentFolderUri: String? = null) : Tool {
 
     override val name = "take_screenshot"
     override val description = "Capture a screenshot of the current screen."
@@ -34,18 +40,41 @@ class ScreenshotTool : Tool {
         "save_to_folder":{"type":"boolean","description":"Save to agent folder","default":true}},"required":[]}}}"""
 
     override suspend fun execute(context: Context, args: JsonObject): ToolResult {
+        val saveToFolder = args["save_to_folder"]?.jsonPrimitive?.booleanOrNull ?: true
+
         return try {
-            val path = captureScreenshot(context)
-            if (path != null) {
-                ToolResult.Success("Screenshot saved: $path")
-            } else {
-                ToolResult.Error("Screenshot permission denied or capture failed", ToolResult.ErrorCode.PERMISSION_DENIED)
-            }
+            val internalPath = captureScreenshot(context)
+                ?: return ToolResult.Error("Screenshot permission denied or capture failed", ToolResult.ErrorCode.PERMISSION_DENIED)
+
+            if (!saveToFolder) return ToolResult.Success("Screenshot saved: $internalPath")
+
+            withContext(Dispatchers.IO) { moveToAgentFolder(context, internalPath) }
         } catch (e: SecurityException) {
             ToolResult.Error("MediaProjection permission denied: ${e.message}", ToolResult.ErrorCode.PERMISSION_DENIED)
         } catch (e: Exception) {
             ToolResult.Error("Screenshot failed: ${e.message}", ToolResult.ErrorCode.UNKNOWN)
         }
+    }
+
+    // save_to_folder defaults true per schema, so a screenshot must actually land in the
+    // agent folder (not just internal storage) for that promise to hold.
+    private fun moveToAgentFolder(context: Context, internalPath: String): ToolResult {
+        val folderUri = agentFolderUri
+        if (folderUri.isNullOrBlank()) {
+            return ToolResult.Success("Screenshot saved (agent folder not configured): $internalPath")
+        }
+        val srcFile = File(internalPath)
+        val folder = DocumentFile.fromTreeUri(context, Uri.parse(folderUri))
+            ?: return ToolResult.Error("Cannot access agent folder", ToolResult.ErrorCode.PERMISSION_DENIED)
+        val destFile = folder.createFile("image/png", srcFile.name)
+            ?: return ToolResult.Error("Failed to create file in agent folder")
+
+        context.contentResolver.openOutputStream(destFile.uri)?.use { out ->
+            srcFile.inputStream().use { it.copyTo(out) }
+        } ?: return ToolResult.Error("Failed to write file")
+        srcFile.delete()
+
+        return ToolResult.Success("Screenshot saved: ${destFile.uri}")
     }
 
     private suspend fun captureScreenshot(context: Context): String? =
