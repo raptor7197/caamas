@@ -43,6 +43,7 @@ import com.main.agent.ui.theme.AgentPeachDeep
 import com.main.agent.ui.theme.AgentSurface2
 import com.main.agent.ui.theme.ToolChip
 import com.main.agent.voice.VoicePipeline
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,6 +54,7 @@ fun ChatScreen(
 ) {
     val uiState    by viewModel.uiState.collectAsState()
     val listState  = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
     var inputText  by remember { mutableStateOf("") }
     var showStats  by remember { mutableStateOf(false) }
 
@@ -285,7 +287,11 @@ fun ChatScreen(
                         FilledIconButton(
                             onClick = {
                                 if (isListening) {
-                                    viewModel.cancelGeneration()
+                                    coroutineScope.launch {
+                                        viewModel.stopVoiceListening()?.let { transcribed ->
+                                            inputText = transcribed
+                                        }
+                                    }
                                 } else {
                                     viewModel.startVoiceListening()
                                 }

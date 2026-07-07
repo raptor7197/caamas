@@ -12,9 +12,11 @@ import com.main.agent.persistence.AppDatabase
 import com.main.agent.persistence.entities.MessageEntity
 import com.main.agent.persistence.entities.SessionEntity
 import com.main.agent.voice.VoicePipeline
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class ToolCallItem(val name: String, val done: Boolean = false, val isError: Boolean = false)
 
@@ -239,9 +241,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         _voicePipeline?.startListening()
     }
 
-    fun stopVoiceListening(): String? {
-        return _voicePipeline?.stopListening()
-    }
+    // stopListening() runs whisper.cpp transcription synchronously (JNI) -- keep it off Main.
+    suspend fun stopVoiceListening(): String? =
+        withContext(Dispatchers.IO) { _voicePipeline?.stopListening() }
 
     fun clearError() = _uiState.update { it.copy(error = null) }
 
