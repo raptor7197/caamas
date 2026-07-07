@@ -119,17 +119,8 @@ jobs:
 
           NOTES="## What's new in ${TAG}
 
-          ### Features
-          - Verbose ReAct system prompt with worked [TOOL_CALL] examples; malformed tool JSON now fed back to the model as a correction instead of silently dropped
-          - Inline tool-call UI — chip shows spinner → checkmark/X as each tool runs
-          - Runtime permission requests on first launch (mic, contacts, SMS, calendar, notifications)
-
           ### Bug fixes
-          - Cloud provider tool calls (Anthropic/OpenAI/Mistral/Gemini/Ollama) were unreliable: raw \`[TOOL_CALL]\` JSON could leak into the chat UI, and the 1024-token default cut long calls off before the closing tag, dropping them silently. Cloud now shares the same buffering as local models and gets a 2048-token budget.
-          - \`browse_url\` and \`download_file\` always failed with NetworkOnMainThreadException — both ran OkHttp on the calling thread instead of Dispatchers.IO.
-          - \`take_screenshot\`'s \`save_to_folder\` option was advertised but ignored; screenshots now actually move into the configured agent folder.
-          - SmsTool validates phone number format and caps message length; tool results are sanitized against sentinel/prompt injection before re-entering model context.
-          - whisper.cpp upgraded v1.7.4 → v1.9.1 to fix ggml API mismatch with llama.cpp b9530
+          - Mic-stop button discarded the recording instead of transcribing it — voice input never reached the text field. Whisper transcription now runs off the main thread and fills the input box, same as typed text.
 
           ### Notes
           - One local model loads based on device RAM: ≥6 GB free → Llama 3.1 8B, else Qwen 2.5 1.5B
