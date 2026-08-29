@@ -26,13 +26,15 @@ class UserPreferences(context: Context) {
         val onboardingDone:  Boolean = false,
     )
 
+    // API keys are encrypted at rest (Android Keystore AES-GCM) — DataStore's backing file is
+    // plaintext-on-disk, and app-internal storage is readable on rooted devices / via adb backup.
     val settingsFlow: Flow<Settings> = ds.data.map { p ->
         Settings(
             agentFolderUri  = p[Keys.FOLDER_URI]     ?: "",
-            openAIKey       = p[Keys.OPENAI_KEY]     ?: "",
-            anthropicKey    = p[Keys.ANTHROPIC_KEY]  ?: "",
-            mistralKey      = p[Keys.MISTRAL_KEY]    ?: "",
-            geminiKey       = p[Keys.GEMINI_KEY]     ?: "",
+            openAIKey       = SecretCrypto.decrypt(p[Keys.OPENAI_KEY]    ?: ""),
+            anthropicKey    = SecretCrypto.decrypt(p[Keys.ANTHROPIC_KEY] ?: ""),
+            mistralKey      = SecretCrypto.decrypt(p[Keys.MISTRAL_KEY]   ?: ""),
+            geminiKey       = SecretCrypto.decrypt(p[Keys.GEMINI_KEY]    ?: ""),
             ollamaUrl       = p[Keys.OLLAMA_URL]     ?: "http://192.168.1.100:11434",
             cloudProvider   = p[Keys.CLOUD_PROVIDER] ?: "",
             chunkSize       = p[Keys.CHUNK_SIZE]     ?: 512,
@@ -42,10 +44,10 @@ class UserPreferences(context: Context) {
     }
 
     suspend fun setAgentFolderUri(uri: String)  = ds.edit { it[Keys.FOLDER_URI]     = uri }
-    suspend fun setOpenAIKey(key: String)        = ds.edit { it[Keys.OPENAI_KEY]     = key }
-    suspend fun setAnthropicKey(key: String)     = ds.edit { it[Keys.ANTHROPIC_KEY]  = key }
-    suspend fun setMistralKey(key: String)       = ds.edit { it[Keys.MISTRAL_KEY]    = key }
-    suspend fun setGeminiKey(key: String)        = ds.edit { it[Keys.GEMINI_KEY]     = key }
+    suspend fun setOpenAIKey(key: String)        = ds.edit { it[Keys.OPENAI_KEY]     = SecretCrypto.encrypt(key) }
+    suspend fun setAnthropicKey(key: String)     = ds.edit { it[Keys.ANTHROPIC_KEY]  = SecretCrypto.encrypt(key) }
+    suspend fun setMistralKey(key: String)       = ds.edit { it[Keys.MISTRAL_KEY]    = SecretCrypto.encrypt(key) }
+    suspend fun setGeminiKey(key: String)        = ds.edit { it[Keys.GEMINI_KEY]     = SecretCrypto.encrypt(key) }
     suspend fun setOllamaUrl(url: String)        = ds.edit { it[Keys.OLLAMA_URL]     = url }
     suspend fun setCloudProvider(p: String)      = ds.edit { it[Keys.CLOUD_PROVIDER] = p }
     suspend fun setChunkSize(n: Int)             = ds.edit { it[Keys.CHUNK_SIZE]     = n }

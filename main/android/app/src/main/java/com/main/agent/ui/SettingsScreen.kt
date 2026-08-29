@@ -104,7 +104,7 @@ fun SettingsScreen(
             // ── Cloud Fallback ────────────────────────────────────────────────
             SettingsSection("Cloud Fallback (optional)") {
                 Text(
-                    "API keys are stored locally and never uploaded.",
+                    "API keys are encrypted at rest, stored locally, and never uploaded except to the provider you select above.",
                     fontSize = 12.sp,
                     color    = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                 )
