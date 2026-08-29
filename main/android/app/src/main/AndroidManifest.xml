@@ -21,22 +21,17 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
-    <!-- ── Contacts ─────────────────────────────────────────────────────────── -->
+    <!-- ── Contacts (search_contacts is read-only) ──────────────────────────── -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
-    <uses-permission android:name="android.permission.WRITE_CONTACTS" />
 
-    <!-- ── SMS ──────────────────────────────────────────────────────────────── -->
+    <!-- ── SMS (RECEIVE_SMS dropped: nothing registers an SMS receiver) ─────── -->
     <uses-permission android:name="android.permission.READ_SMS" />
     <uses-permission android:name="android.permission.SEND_SMS" />
-    <uses-permission android:name="android.permission.RECEIVE_SMS" />
 
-    <!-- ── Phone ────────────────────────────────────────────────────────────── -->
-    <uses-permission android:name="android.permission.CALL_PHONE" />
-    <uses-permission android:name="android.permission.READ_CALL_LOG" />
-
-    <!-- ── Calendar / Alarm ─────────────────────────────────────────────────── -->
+    <!-- ── Calendar / Alarm (create_event delegates to the Calendar app via
+         ACTION_INSERT, so WRITE_CALENDAR isn't needed; CALL_PHONE dropped too —
+         make_call only uses ACTION_DIAL, which needs no permission) ─────────── -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
-    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
     <uses-permission android:name="android.permission.SET_ALARM" />
 
     <!-- ── System / Settings ────────────────────────────────────────────────── -->
@@ -45,15 +40,9 @@
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-    <uses-permission android:name="android.permission.WRITE_SETTINGS"
-        tools:ignore="ProtectedPermissions" />
 
     <!-- ── Screenshot (MediaProjection) ────────────────────────────────────── -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
-
-    <!-- ── Storage (model persistence across uninstalls) ─────────────────────── -->
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
-        tools:ignore="ScopedStorage" />
 
     <!-- ── Vibrate (haptic feedback on overlay) ─────────────────────────────── -->
     <uses-permission android:name="android.permission.VIBRATE" />
