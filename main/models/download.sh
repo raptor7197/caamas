@@ -25,8 +25,8 @@ download() {
 verify_checksums() {
   if [ -f "$CHECKSUMS" ]; then
     echo "→ Verifying checksums…"
-    (cd "$MODELS_DIR" && sha256sum -c "$CHECKSUMS" --ignore-missing 2>/dev/null && echo "✓ All checksums OK") || \
-      echo "⚠ Some checksums failed — re-download if inference fails"
+    (cd "$MODELS_DIR" && sha256sum -c "$CHECKSUMS" --ignore-missing)
+    echo "✓ All checksums OK"
   fi
 }
 
@@ -41,10 +41,10 @@ echo ""
 #   "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf" \
 #   "https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF/resolve/main/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf"
 
-# Gemma 2 2B Instruct Q4_K_M  — ~1.6 GB — all devices (including Narzo 20)
+# Qwen 2.5 1.5B Instruct Q4_K_M  — ~1 GB — default model (SMALL tier, all devices)
 download \
-  "gemma-2-2b-it-Q4_K_M.gguf" \
-  "https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q4_K_M.gguf"
+  "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf" \
+  "https://huggingface.co/bartowski/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf"
 
 # Whisper base.en  — 142 MB — Phase 3 (STT)
 download \
