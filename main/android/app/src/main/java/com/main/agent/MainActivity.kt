@@ -65,6 +65,10 @@ class MainActivity : ComponentActivity() {
     private var agentCore:   AgentCore? = null
     private var modelManager: ModelManager? = null
     private var voicePipeline: VoicePipeline? = null
+    private var embedEngine: EmbeddingEngine? = null
+    private var whisperSTT: WhisperSTT? = null
+    private var tts: TTSEngine? = null
+    private var indexJob: kotlinx.coroutines.Job? = null
 
     private val requestDevicePermissions = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -117,6 +121,9 @@ class MainActivity : ComponentActivity() {
                 }
 
                 val chatVm: ChatViewModel = viewModel()
+                LaunchedEffect(screen) {
+                    chatVm.setStatsActive(screen == Screen.Chat)
+                }
                 LaunchedEffect(agentCore, voicePipeline) {
                     if (agentCore != null) {
                         chatVm.agentCore = agentCore
@@ -199,16 +206,17 @@ class MainActivity : ComponentActivity() {
 
         var ragRetriever: RAGRetriever? = null
         if (agentFolderUri != null) {
-            val embedEngine = EmbeddingEngine()
             val embedModelFile = mm.modelsDir.resolve(ModelManager.ModelSpec.NOMIC_EMBED_TEXT.filename)
             if (embedModelFile.exists()) {
-                embedEngine.loadModel(embedModelFile.absolutePath)
+                val embed = EmbeddingEngine()
+                embed.loadModel(embedModelFile.absolutePath)
+                embedEngine = embed
                 val vecConfig  = VectorDbConfig()
                 val vecStore   = VectorStore(this, vecConfig)
                 vecStore.load()
-                ragRetriever = RAGRetriever(vecStore, embedEngine, vecConfig)
-                lifecycleScope.launch {
-                    val indexer = FileIndexer(this@MainActivity, agentFolderUri, vecStore, embedEngine, vecConfig)
+                ragRetriever = RAGRetriever(vecStore, embed, vecConfig)
+                indexJob = lifecycleScope.launch {
+                    val indexer = FileIndexer(this@MainActivity, agentFolderUri, vecStore, embed, vecConfig)
                     indexer.indexIfNeeded()
                 }
             }
@@ -223,10 +231,12 @@ class MainActivity : ComponentActivity() {
 
         val whisperFile = mm.modelsDir.resolve(ModelManager.ModelSpec.WHISPER_BASE_EN.filename)
         if (whisperFile.exists()) {
-            val whisperSTT = WhisperSTT(this)
-            whisperSTT.loadModel(whisperFile.absolutePath)
-            val tts = TTSEngine(this)
-            voicePipeline = VoicePipeline(this, whisperSTT, tts, agentCore!!, lifecycleScope)
+            val whisper = WhisperSTT(this)
+            whisper.loadModel(whisperFile.absolutePath)
+            whisperSTT = whisper
+            val ttsEngine = TTSEngine(this)
+            tts = ttsEngine
+            voicePipeline = VoicePipeline(this, whisper, ttsEngine, agentCore!!, lifecycleScope)
         }
     }
 
@@ -247,11 +257,15 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        indexJob?.cancel()
         engine.cancel()
         kotlinx.coroutines.runBlocking { engine.unload() }
         voicePipeline?.let { vp ->
             vp.cancel()
         }
+        whisperSTT?.unload()
+        tts?.shutdown()
+        embedEngine?.unload()
         super.onDestroy()
     }
 
