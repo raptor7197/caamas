@@ -33,7 +33,10 @@ benchmark = [
 
 [build-system]
 requires = ["setuptools>=68"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["training", "fl_server"]
 
 [tool.ruff]
 line-length = 100
