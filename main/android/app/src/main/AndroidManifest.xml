@@ -12,7 +12,7 @@
     <!-- ── Notifications (ForegroundService on Android 13+) ────────────────── -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <!-- ── Floating Overlay ─────────────────────────────────────────────────── -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
@@ -91,10 +91,16 @@
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <!-- ── Overlay ForegroundService ─────────────────────────────────── -->
+        <!-- specialUse, not microphone|mediaProjection: this service doesn't hold an active
+             recording or a projection token, it's a floating launcher bubble. -->
         <service
             android:name=".overlay.OverlayService"
             android:exported="false"
-            android:foregroundServiceType="microphone|mediaProjection" />
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="floating_chat_bubble_overlay" />
+        </service>
 
         <!-- ── File provider (sharing camera output) ──────────────────────── -->
         <provider
