@@ -1,10 +1,13 @@
 package com.main.agent.tools.device
 
+import android.Manifest
 import android.content.Context
 import android.net.Uri
 import android.telephony.SmsManager
 import com.main.agent.tools.base.Tool
 import com.main.agent.tools.base.ToolResult
+import com.main.agent.tools.base.hasPermission
+import com.main.agent.tools.base.permissionDeniedResult
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -48,6 +51,8 @@ class SmsTool : Tool {
                         message  = "Send '$msg' to $to",
                         jsonData = buildJsonString { put("to", to); put("message", msg); put("confirmed", true) },
                     )
+                } else if (!context.hasPermission(Manifest.permission.SEND_SMS)) {
+                    permissionDeniedResult(Manifest.permission.SEND_SMS)
                 } else {
                     try {
                         val smsManager = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
@@ -75,6 +80,9 @@ class SmsTool : Tool {
     }
 
     private fun readInbox(context: Context, limit: Int): ToolResult {
+        if (!context.hasPermission(Manifest.permission.READ_SMS)) {
+            return permissionDeniedResult(Manifest.permission.READ_SMS)
+        }
         return try {
             val cursor = context.contentResolver.query(
                 Uri.parse("content://sms/inbox"),

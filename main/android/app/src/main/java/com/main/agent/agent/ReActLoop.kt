@@ -120,7 +120,11 @@ class ReActLoop(private val engine: LlamaEngine) {
                 val (toolName, toolArgs) = try {
                     val obj  = Json.parseToJsonElement(callJson).jsonObject
                     val name = obj["name"]?.jsonPrimitive?.content ?: ""
-                    val args = obj["args"]?.jsonObject?.toString() ?: "{}"
+                    // Never trust a model-supplied "confirmed" — only the host may set it,
+                    // after ConfirmationBroker.request() actually granted it below.
+                    val argsObj = obj["args"]?.jsonObject?.toMutableMap() ?: mutableMapOf()
+                    argsObj.remove("confirmed")
+                    val args = JsonObject(argsObj).toString()
                     name to args
                 } catch (e: Exception) {
                     emit("\n⚠ Malformed tool call — asking model to retry...\n")

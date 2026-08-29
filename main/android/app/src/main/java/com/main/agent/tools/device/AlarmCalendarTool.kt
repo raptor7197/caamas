@@ -1,11 +1,14 @@
 package com.main.agent.tools.device
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.provider.AlarmClock
 import android.provider.CalendarContract
 import com.main.agent.tools.base.Tool
 import com.main.agent.tools.base.ToolResult
+import com.main.agent.tools.base.hasPermission
+import com.main.agent.tools.base.permissionDeniedResult
 import kotlinx.serialization.json.*
 import java.text.SimpleDateFormat
 import java.util.*
@@ -36,6 +39,9 @@ class AlarmCalendarTool : Tool {
     }
 
     private fun readEvents(context: Context, daysAhead: Int): ToolResult {
+        if (!context.hasPermission(Manifest.permission.READ_CALENDAR)) {
+            return permissionDeniedResult(Manifest.permission.READ_CALENDAR)
+        }
         return try {
             val now  = System.currentTimeMillis()
             val end  = now + daysAhead.toLong() * 86400000L

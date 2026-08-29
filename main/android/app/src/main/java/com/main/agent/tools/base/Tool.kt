@@ -1,6 +1,8 @@
 package com.main.agent.tools.base
 
 import android.content.Context
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import kotlinx.serialization.json.JsonObject
 
 /**
@@ -23,3 +25,10 @@ interface Tool {
      */
     suspend fun execute(context: Context, args: JsonObject): ToolResult
 }
+
+/** True if [permission] is currently granted — check before device access instead of trusting an empty result. */
+fun Context.hasPermission(permission: String): Boolean =
+    ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+
+fun permissionDeniedResult(permission: String): ToolResult =
+    ToolResult.Error("Permission not granted: $permission", ToolResult.ErrorCode.PERMISSION_DENIED)
