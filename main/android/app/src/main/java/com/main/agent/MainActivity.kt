@@ -247,7 +247,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        engine.unload()
+        engine.cancel()
+        kotlinx.coroutines.runBlocking { engine.unload() }
         voicePipeline?.let { vp ->
             vp.cancel()
         }
