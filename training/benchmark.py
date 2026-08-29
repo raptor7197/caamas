@@ -61,7 +61,10 @@ def full_benchmark(
             if input_scale != 0:
                 qx = (x / input_scale + input_zp).astype(np.int8)
             else:
-                qx = x.astype(np.int8)
+                # Index input is unquantized (int32) — match whatever dtype the model
+                # actually expects instead of hardcoding int8, which the interpreter
+                # would reject with a dtype-mismatch error.
+                qx = x.astype(in_det["dtype"])
             interpreter.set_tensor(in_det["index"], qx)
             interpreter.invoke()
             probs = interpreter.get_tensor(out_det["index"])[0]
@@ -117,9 +120,11 @@ def main():
         _ = model(x)
 
         trainer_dir = os.path.dirname(__file__)
-        calib = np.concatenate([np.array(s[:10]) for s in synthetic_test if len(s) >= 10])
-        export_tflite(args.keras_model if os.path.exists(args.keras_model) else None,
-                      quant_path, calibration_data=calib)
+        # stack (not concatenate) so each sample stays a separate (seq_len,) row —
+        # concatenate flattened every sample together into one 1-D array, destroying
+        # the per-sample shape the representative dataset needs to batch on.
+        calib = np.stack([np.array(s[:10]) for s in synthetic_test if len(s) >= 10])
+        export_tflite(model, quant_path, calibration_data=calib)
 
     results = full_benchmark(
         None, quant_path, synthetic_test, args.seq_len, args.vocab_size

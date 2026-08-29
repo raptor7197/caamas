@@ -69,7 +69,7 @@ def test_tflite_export_integration():
 
     try:
         calibration_data = np.random.randint(1, 50, size=(100, 4)).astype(np.float32)
-        export_tflite(None, tflite_path, calibration_data=calibration_data, quantize=True)
+        export_tflite(model, tflite_path, calibration_data=calibration_data, quantize=True)
         assert os.path.getsize(tflite_path) > 0
 
         result = benchmark_tflite(tflite_path, x, num_threads=1)

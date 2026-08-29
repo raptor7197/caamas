@@ -88,18 +88,21 @@ def main():
     )
     model.summary()
 
-    total_steps = args.epochs * (len(train_seqs) // args.batch_size)
-    lr_schedule = WarmupCosineDecay(warmup_steps=500, total_steps=total_steps)
-    optimizer = tf.keras.optimizers.Adam(learning_rate=args.lr)
+    total_steps = max(1, args.epochs * (len(train_seqs) // args.batch_size))
+    lr_schedule = WarmupCosineDecay(peak_lr=args.lr, warmup_steps=500, total_steps=total_steps)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
+    top3_metric = tf.keras.metrics.SparseTopKCategoricalAccuracy(k=3, name="sparse_top_3_categorical_accuracy")
     model.compile(
         optimizer=optimizer,
         loss="sparse_categorical_crossentropy",
-        metrics=["accuracy", "sparse_top_k_categorical_accuracy"],
+        metrics=["accuracy", top3_metric],
     )
 
     callbacks = [
         tf.keras.callbacks.EarlyStopping(patience=5, restore_best_weights=True),
-        tf.keras.callbacks.ReduceLROnPlateau(factor=0.5, patience=3),
+        # ReduceLROnPlateau dropped: it mutates optimizer.lr directly, which Keras
+        # doesn't support once the optimizer is driven by a LearningRateSchedule
+        # (the warmup+cosine schedule below already provides the LR curve).
         tf.keras.callbacks.ModelCheckpoint(
             "models/camms_gru_checkpoint.keras", save_best_only=True
         ),
@@ -117,7 +120,7 @@ def main():
         hist_dict = {k: [float(v) for v in vals] for k, vals in history.history.items()}
         json.dump(hist_dict, f, indent=2)
 
-    print("[INFO] Converting to TFLite with INT8 quantization...")
+    print("[INFO] Converting to TFLite with INT8 weight quantization...")
     converter = tf.lite.TFLiteConverter.from_keras_model(model)
     converter.optimizations = [tf.lite.Optimize.DEFAULT]
     converter.target_spec.supported_types = [tf.int8]
@@ -127,8 +130,16 @@ def main():
             yield [tf.cast(batch[0], tf.float32)]
 
     converter.representative_dataset = representative_dataset
-    converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
-    converter.inference_input_type = tf.int8
+    # TFLITE_BUILTINS alongside _INT8 lets ops that can't run INT8 (GRU internals
+    # often can't) fall back to float instead of failing conversion outright.
+    converter.target_spec.supported_ops = [
+        tf.lite.OpsSet.TFLITE_BUILTINS_INT8,
+        tf.lite.OpsSet.TFLITE_BUILTINS,
+    ]
+    # Keep the index input un-quantized: these are Embedding token IDs, not a
+    # continuous signal — quantizing them to int8 overflows for any ID > 127 and
+    # silently mis-indexes the embedding table.
+    converter.inference_input_type = tf.int32
     converter.inference_output_type = tf.float32
 
     tflite_model = converter.convert()
@@ -138,7 +149,7 @@ def main():
     size_kb = os.path.getsize(args.output) / 1024
     print(f"[INFO] TFLite model saved to {args.output} ({size_kb:.1f} KB)")
 
-    final_acc = history.history["val_sparse_top_k_categorical_accuracy"][-1]
+    final_acc = history.history["val_sparse_top_3_categorical_accuracy"][-1]
     print(f"[INFO] Validation top-3 accuracy: {final_acc:.3f}")
     print(f"[DONE] Training complete.")
 
