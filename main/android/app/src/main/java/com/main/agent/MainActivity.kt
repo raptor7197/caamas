@@ -1,14 +1,9 @@
 package com.main.agent
 
 import android.Manifest
-import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Environment
-import android.provider.Settings
-import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -28,7 +23,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
@@ -63,7 +57,6 @@ import com.main.agent.voice.VoicePipeline
 import com.main.agent.voice.WhisperSTT
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import java.io.File
 import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
@@ -72,12 +65,6 @@ class MainActivity : ComponentActivity() {
     private var agentCore:   AgentCore? = null
     private var modelManager: ModelManager? = null
     private var voicePipeline: VoicePipeline? = null
-
-    private val requestPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) {
-        modelManager?.updateModelsDir()
-    }
 
     private val requestDevicePermissions = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -88,7 +75,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        checkStoragePermission()
         requestDangerousPermissions()
 
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
@@ -125,12 +111,8 @@ class MainActivity : ComponentActivity() {
 
                 LaunchedEffect(screen) {
                     if (screen == Screen.Loading) {
-                        if (needsStoragePermission()) {
-                            screen = Screen.StoragePermission
-                        } else {
-                            loadModel(cap, settings, app)
-                            screen = Screen.Chat
-                        }
+                        loadModel(cap, settings, app)
+                        screen = Screen.Chat
                     }
                 }
 
@@ -178,9 +160,6 @@ class MainActivity : ComponentActivity() {
                             state = mmState
                         )
                     }
-                    Screen.StoragePermission -> StoragePermissionScreen(
-                        onGranted = { screen = Screen.Loading },
-                    )
                     Screen.Chat      -> ChatScreen(
                         viewModel      = chatVm,
                         onOpenSettings = { screen = Screen.Settings },
@@ -196,17 +175,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-    }
-
-    private fun needsStoragePermission(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false
-        if (Environment.isExternalStorageManager()) return false
-        // Check if we can write to the default models directory
-        val dir = File(
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-            "caamas/models",
-        )
-        return !dir.canWrite()
     }
 
     private suspend fun loadModel(
@@ -278,22 +246,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun checkStoragePermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (!Environment.isExternalStorageManager()) {
-                try {
-                    val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
-                    intent.data = Uri.parse("package:$packageName")
-                    requestPermissionLauncher.launch(intent)
-                    Toast.makeText(this, "Please allow All Files Access to keep models after uninstall", Toast.LENGTH_LONG).show()
-                } catch (e: Exception) {
-                    val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                    requestPermissionLauncher.launch(intent)
-                }
-            }
-        }
-    }
-
     override fun onDestroy() {
         engine.unload()
         voicePipeline?.let { vp ->
@@ -302,7 +254,7 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
-    private enum class Screen { Splash, Onboarding, Loading, StoragePermission, Chat, Settings, History }
+    private enum class Screen { Splash, Onboarding, Loading, Chat, Settings, History }
 }
 
 @Composable
@@ -338,34 +290,3 @@ private fun LoadingScreen(text: String, state: ModelManager.State = ModelManager
     }
 }
 
-@Composable
-private fun StoragePermissionScreen(onGranted: () -> Unit) {
-    val ctx = LocalContext.current
-    Box(
-        modifier = Modifier.fillMaxSize().padding(32.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Text("Storage permission required")
-            Text(
-                text = "Models are stored in Downloads/caamas/ to survive app reinstalls. " +
-                       "Enable 'Allow access to manage all files' in system settings.",
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Button(onClick = {
-                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                    data = Uri.parse("package:${ctx.packageName}")
-                }
-                ctx.startActivity(intent)
-            }) {
-                Text("Open Settings")
-            }
-            Button(onClick = onGranted) {
-                Text("I've enabled it — continue")
-            }
-        }
-    }
-}

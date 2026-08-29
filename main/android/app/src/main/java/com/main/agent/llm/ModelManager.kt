@@ -1,7 +1,6 @@
 package com.main.agent.llm
 
 import android.content.Context
-import android.os.Environment
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,53 +36,16 @@ class ModelManager(
     private val _state = MutableStateFlow<State>(State.Idle)
     val state: StateFlow<State> = _state.asStateFlow()
 
-    var modelsDir: File
-        private set
+    // App-scoped external storage (Android/data/<package>/files/models) — no permission needed,
+    // unlike the public Downloads dir this used to write to (which required the
+    // MANAGE_EXTERNAL_STORAGE "all files access" permission, a Play Store policy blocker not
+    // justified by this feature). Trades away surviving an uninstall for not needing that grant.
+    val modelsDir: File = context.getExternalFilesDir("models")
+        ?.also { it.mkdirs() }
+        ?: File(context.filesDir, "models").also { it.mkdirs() }
 
     init {
-        val externalDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        val defaultDir = File(externalDir, "caamas/models")
-        val canWriteExternal = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-            Environment.isExternalStorageManager()
-        } else {
-            defaultDir.canWrite() || defaultDir.mkdirs()
-        }
-        modelsDir = if (canWriteExternal) {
-            defaultDir.also { it.mkdirs() }
-        } else {
-            File(context.filesDir, "models").also { it.mkdirs() }
-        }
         Log.i(TAG, "Models dir set to: ${modelsDir.absolutePath}")
-    }
-
-    fun updateModelsDir() {
-        val externalDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        val defaultDir = File(externalDir, "caamas/models")
-
-        // Check if we have permission to write to external storage (Android 11+)
-        val canWriteExternal = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-            Environment.isExternalStorageManager()
-        } else {
-            // For older versions, we'd check standard permissions, but the app is likely targeted for newer ones
-            defaultDir.canWrite() || defaultDir.mkdirs()
-        }
-
-        modelsDir = if (canWriteExternal) {
-            defaultDir.also { it.mkdirs() }
-        } else {
-            File(context.filesDir, "models").also { it.mkdirs() }
-        }
-        Log.i(TAG, "Models dir set to: ${modelsDir.absolutePath}")
-    }
-
-    fun setModelsDir(path: String) {
-        val dir = File(path).also { it.mkdirs() }
-        if (dir.isDirectory && dir.canWrite()) {
-            modelsDir = dir
-            Log.i(TAG, "Models dir set to: ${dir.absolutePath}")
-        } else {
-            Log.w(TAG, "Cannot write to $path, keeping: ${modelsDir.absolutePath}")
-        }
     }
 
     val targetModel: ModelSpec
