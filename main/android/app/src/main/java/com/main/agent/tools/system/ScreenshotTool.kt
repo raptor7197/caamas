@@ -28,7 +28,8 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 import java.io.FileOutputStream
-import java.util.concurrent.atomic.AtomicReference
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.resume
 
 class ScreenshotTool(private val agentFolderUri: String? = null) : Tool {
@@ -79,12 +80,16 @@ class ScreenshotTool(private val agentFolderUri: String? = null) : Tool {
 
     private suspend fun captureScreenshot(context: Context): String? =
         suspendCancellableCoroutine { continuation ->
+            val requestId = UUID.randomUUID().toString()
             val deferred = CompletableDeferred<String?>()
 
-            ScreenshotCaptureActivity.pendingResult.set(deferred)
+            // Keyed by request ID (not a single shared slot) so concurrent captures each get
+            // their own screenshot back instead of one request stealing another's result.
+            ScreenshotCaptureActivity.pending[requestId] = deferred
 
             val intent = Intent(context, ScreenshotCaptureActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra(ScreenshotCaptureActivity.EXTRA_REQUEST_ID, requestId)
             }
             context.startActivity(intent)
 
@@ -98,7 +103,7 @@ class ScreenshotTool(private val agentFolderUri: String? = null) : Tool {
 
             continuation.invokeOnCancellation {
                 deferred.cancel()
-                ScreenshotCaptureActivity.pendingResult.compareAndSet(deferred, null)
+                ScreenshotCaptureActivity.pending.remove(requestId, deferred)
             }
         }
 }
@@ -107,15 +112,23 @@ class ScreenshotCaptureActivity : AppCompatActivity() {
 
     private var mediaProjection: MediaProjection? = null
     private var handlerThread: HandlerThread? = null
+    private var requestId: String? = null
 
     companion object {
         const val REQUEST_SCREENSHOT = 1001
-        // AtomicReference prevents concurrent requests from overwriting each other
-        val pendingResult = AtomicReference<CompletableDeferred<String?>?>()
+        const val EXTRA_REQUEST_ID = "request_id"
+        // Keyed by request ID so each activity instance completes only its own caller,
+        // even if multiple screenshot requests are in flight concurrently.
+        val pending = ConcurrentHashMap<String, CompletableDeferred<String?>>()
+    }
+
+    private fun completeSelf(path: String?) {
+        requestId?.let { pending.remove(it) }?.complete(path)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        requestId = intent.getStringExtra(EXTRA_REQUEST_ID)
         val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         startActivityForResult(projectionManager.createScreenCaptureIntent(), REQUEST_SCREENSHOT)
     }
@@ -130,14 +143,14 @@ class ScreenshotCaptureActivity : AppCompatActivity() {
             mediaProjection = projectionManager.getMediaProjection(resultCode, data)
             captureScreen()
         } else {
-            pendingResult.getAndSet(null)?.complete(null)
+            completeSelf(null)
             finish()
         }
     }
 
     private fun captureScreen() {
         val projection = mediaProjection ?: run {
-            pendingResult.getAndSet(null)?.complete(null)
+            completeSelf(null)
             finish()
             return
         }
@@ -190,7 +203,7 @@ class ScreenshotCaptureActivity : AppCompatActivity() {
                 projection.stop()
             }
 
-            pendingResult.getAndSet(null)?.complete(path)
+            completeSelf(path)
             finish()
         }, handler)
 
@@ -215,6 +228,6 @@ class ScreenshotCaptureActivity : AppCompatActivity() {
         super.onDestroy()
         mediaProjection?.stop()
         handlerThread?.quitSafely()
-        pendingResult.getAndSet(null)?.complete(null)
+        completeSelf(null)
     }
 }
