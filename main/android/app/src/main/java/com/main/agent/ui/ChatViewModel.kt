@@ -15,6 +15,7 @@ import com.main.agent.voice.VoicePipeline
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 data class ToolCallItem(val name: String, val done: Boolean = false, val isError: Boolean = false)
@@ -77,12 +78,18 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
 
     private var statsJob: Job? = null
+    @Volatile private var statsActive = true
+
+    /** Pause/resume the periodic stats refresh, e.g. when the Chat screen isn't visible. */
+    fun setStatsActive(active: Boolean) {
+        statsActive = active
+    }
 
     private fun startStatsRefresh() {
         statsJob?.cancel()
-        statsJob = viewModelScope.launch {
-            while (true) {
-                updateStats()
+        statsJob = viewModelScope.launch(Dispatchers.IO) {
+            while (isActive) {
+                if (statsActive) updateStats()
                 kotlinx.coroutines.delay(2000)
             }
         }
