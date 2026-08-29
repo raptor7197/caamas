@@ -1,1 +1,0 @@
-/usr/bin/c++ -Wl,--dependency-file=CMakeFiles/test_gru_inference.dir/link.d "CMakeFiles/test_gru_inference.dir/android/camms-daemon/test/test_gru_inference.cpp.o" -o test_gru_inference  libcamms_core.a

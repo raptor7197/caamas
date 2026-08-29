@@ -1,7 +1,0 @@
-test_arc_cache 5 0.000983291
-test_psi_monitor 5 0.000894078
-test_confidence_gate 5 0.000926413
-test_kv_cache 4 0.00223839
-test_working_set 5 0.101808
-test_gru_inference 3 0.00210829
----
