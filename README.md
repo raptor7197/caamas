@@ -8,7 +8,7 @@ context-aware adaptive memory solution for mobile agentic systems. basically, we
 - **smart memory management** — adaptive arc cache watches pressure metrics and evicts intelligently instead of crashing
 - **kv-cache compression** — shrinks llm context memory by 75% (fp16 → int4) with <1% quality loss
 - **thermal scaling** — keeps the phone from melting during inference; gracefully degrades features as it heats up
-- **federated learning** — phones learn from each other without uploading data, using flower framework + differential privacy (ε≤8)
+- **federated learning** — phones learn from each other without uploading data, using flower framework + differential privacy (per-client clipping + Gaussian noise, ε accounted via opacus's RDP accountant, target ε≤8 — not yet independently audited)
 
 ## tech stack
 
@@ -25,7 +25,7 @@ context-aware adaptive memory solution for mobile agentic systems. basically, we
 ```
 caamas/
 ├── android/camms-daemon/      # c++ native daemon (arc, psi, working-set, thermal, kv-cache)
-├── android/app/               # kotlin android app + jni bridge
+├── main/android/app/          # kotlin android app + jni bridge (llama.cpp/whisper.cpp inference)
 ├── fl_server/                 # flower federated learning server
 ├── training/                  # gru model training & tflite export
 ├── benchmarks/                # microbench & system tests
@@ -82,8 +82,8 @@ day 8+: full camms operation with fl uploads
 2. `bash scripts/setup.sh` to fetch llama.cpp + whisper.cpp
 3. python training: `camms-train` trains gru on frappe dataset
 4. export: `camms-export` quantizes to int8 tflite
-5. c++ build: `cmake -B build && make -C build` for daemon
-6. android: open `android/` in android studio, build daemon as jni lib
+5. c++ build: `cmake -B build && make -C build` for the standalone daemon (`android/camms-daemon/`; not yet wired into the mobile app build)
+6. android: open `main/android/` in android studio — the app builds llama.cpp/whisper.cpp via its own CMake config
 7. fl simulation: `camms-simulate` runs fedavg with 100 synthetic clients
 
 ## stress tests covered
