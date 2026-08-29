@@ -5,12 +5,15 @@ import tensorflow as tf
 
 
 def export_tflite(
-    keras_model_path: str,
+    keras_model: "str | tf.keras.Model",
     output_path: str,
     calibration_data: np.ndarray | None = None,
     quantize: bool = True,
 ) -> str:
-    model = tf.keras.models.load_model(keras_model_path)
+    # Accept either a path or an already-in-memory model — callers that just built/loaded
+    # a model (e.g. because no checkpoint exists yet) shouldn't have to round-trip it
+    # through disk, and previously had no way to pass it in at all (had to pass None).
+    model = tf.keras.models.load_model(keras_model) if isinstance(keras_model, str) else keras_model
     converter = tf.lite.TFLiteConverter.from_keras_model(model)
 
     if quantize:
@@ -20,7 +23,9 @@ def export_tflite(
             tf.lite.OpsSet.TFLITE_BUILTINS_INT8,
             tf.lite.OpsSet.TFLITE_BUILTINS,
         ]
-        converter.inference_input_type = tf.int8
+        # Un-quantized index input — see train_frappe.py for why quantizing token IDs
+        # to int8 is wrong (overflows for any ID > 127).
+        converter.inference_input_type = tf.int32
         converter.inference_output_type = tf.float32
 
         if calibration_data is not None:

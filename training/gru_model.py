@@ -54,8 +54,15 @@ def create_sequence_dataset(
 
 
 class WarmupCosineDecay(tf.keras.optimizers.schedules.LearningRateSchedule):
-    def __init__(self, warmup_steps: int = 500, total_steps: int = 5000, min_lr: float = 1e-6):
+    def __init__(
+        self,
+        peak_lr: float = 1e-3,
+        warmup_steps: int = 500,
+        total_steps: int = 5000,
+        min_lr: float = 1e-6,
+    ):
         super().__init__()
+        self.peak_lr = peak_lr
         self.warmup_steps = warmup_steps
         self.total_steps = total_steps
         self.min_lr = min_lr
@@ -66,7 +73,16 @@ class WarmupCosineDecay(tf.keras.optimizers.schedules.LearningRateSchedule):
         warmup = tf.minimum(warmup, 1.0)
         cosine = tf.cos(tf.constant(np.pi / 2) * (step_f - self.warmup_steps) / (self.total_steps - self.warmup_steps))
         cosine = tf.where(step_f < self.warmup_steps, 1.0, cosine)
-        return self.min_lr + (1.0 - self.min_lr) * tf.cast(warmup * cosine, tf.float32)
+        # __call__ previously returned this [min_lr/peak_lr, 1.0]-ish factor directly as
+        # the learning rate — multiply by peak_lr so it's an actual LR, not a bare multiplier.
+        min_ratio = self.min_lr / self.peak_lr
+        factor = min_ratio + (1.0 - min_ratio) * tf.cast(warmup * cosine, tf.float32)
+        return self.peak_lr * factor
 
     def get_config(self):
-        return {"warmup_steps": self.warmup_steps, "total_steps": self.total_steps, "min_lr": self.min_lr}
+        return {
+            "peak_lr": self.peak_lr,
+            "warmup_steps": self.warmup_steps,
+            "total_steps": self.total_steps,
+            "min_lr": self.min_lr,
+        }
