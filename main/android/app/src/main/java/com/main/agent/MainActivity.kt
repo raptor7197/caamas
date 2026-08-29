@@ -239,7 +239,7 @@ class MainActivity : ComponentActivity() {
                 ragRetriever = RAGRetriever(vecStore, embedEngine, vecConfig)
                 lifecycleScope.launch {
                     val indexer = FileIndexer(this@MainActivity, agentFolderUri, vecStore, embedEngine, vecConfig)
-                    indexer.indexAll()
+                    indexer.indexIfNeeded()
                 }
             }
         }

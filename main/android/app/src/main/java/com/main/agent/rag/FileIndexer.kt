@@ -6,6 +6,7 @@ import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 
 private const val TAG = "FileIndexer"
 
@@ -24,46 +25,39 @@ class FileIndexer(
     private val embedEngine: EmbeddingEngine,
     private val config: VectorDbConfig,
 ) {
+    // sourcePath -> lastModified at the time it was last indexed. Presence of this file is
+    // also how indexIfNeeded() tells "first run" (needs indexAll) from "already indexed"
+    // (deltaUpdate suffices) apart.
+    private val metaFile = File(context.filesDir, "rag/index_meta.tsv").also { it.parentFile?.mkdirs() }
+
+    /** Full index on first run; cheap changed/new/removed-file-only update afterwards. */
+    suspend fun indexIfNeeded(): Int = if (metaFile.exists()) deltaUpdate() else indexAll()
+
     suspend fun indexAll(): Int = withContext(Dispatchers.IO) {
         val rootUri = Uri.parse(agentFolderUri)
         val rootDir = DocumentFile.fromTreeUri(context, rootUri)
             ?: return@withContext 0
 
         vectorStore.clear()
+        val files = collectSupportedFiles(rootDir)
+        val meta = mutableMapOf<String, Long>()
         var totalChunks = 0
-        val processedDirs = mutableSetOf<String>()
 
-        fun walkDir(dir: DocumentFile) {
-            val dirUri = dir.uri.toString()
-            if (dirUri in processedDirs) return
-            processedDirs.add(dirUri)
+        for (file in files) {
+            val text = readFileContent(file) ?: continue
+            if (text.isBlank()) continue
 
-            val files = dir.listFiles() ?: return
-            for (file in files) {
-                if (file.isDirectory) {
-                    walkDir(file)
-                } else if (file.isFile) {
-                    val name = file.name?.lowercase() ?: continue
-                    val ext = name.substringAfterLast('.', "")
-                    if (ext !in SUPPORTED_EXTENSIONS) continue
-
-                    val text = readFileContent(file) ?: continue
-                    if (text.isBlank()) continue
-
-                    val sourcePath = file.uri.toString()
-                    val chunks = chunkText(text, sourcePath)
-
-                    for ((chunkText, chunkOffset) in chunks) {
-                        val embedding = embedEngine.embed(chunkText) ?: continue
-                        vectorStore.insert(sourcePath, chunkText, embedding)
-                        totalChunks++
-                    }
-                }
+            val sourcePath = file.uri.toString()
+            for ((chunkText, _) in chunkText(text, sourcePath)) {
+                val embedding = embedEngine.embed(chunkText) ?: continue
+                vectorStore.insert(sourcePath, chunkText, embedding)
+                totalChunks++
             }
+            meta[sourcePath] = file.lastModified()
         }
 
-        walkDir(rootDir)
         vectorStore.save()
+        saveMeta(meta)
         Log.i(TAG, "Indexed $totalChunks chunks from agent folder")
         totalChunks
     }
@@ -73,8 +67,48 @@ class FileIndexer(
         val rootDir = DocumentFile.fromTreeUri(context, rootUri)
             ?: return@withContext 0
 
+        val meta = loadMeta()
+        val files = collectSupportedFiles(rootDir)
+        val seen = mutableSetOf<String>()
+        var newChunks = 0
+        var changedFiles = 0
+
+        for (file in files) {
+            val sourcePath = file.uri.toString()
+            seen.add(sourcePath)
+            val mtime = file.lastModified()
+            if (meta[sourcePath] == mtime) continue // unchanged since last index
+
+            vectorStore.deleteBySource(sourcePath)
+            val text = readFileContent(file)
+            if (text.isNullOrBlank()) {
+                meta.remove(sourcePath)
+                continue
+            }
+            for ((chunkText, _) in chunkText(text, sourcePath)) {
+                val embedding = embedEngine.embed(chunkText) ?: continue
+                vectorStore.insert(sourcePath, chunkText, embedding)
+                newChunks++
+            }
+            meta[sourcePath] = mtime
+            changedFiles++
+        }
+
+        val removedPaths = meta.keys - seen
+        for (path in removedPaths) {
+            vectorStore.deleteBySource(path)
+            meta.remove(path)
+        }
+
+        if (newChunks > 0 || removedPaths.isNotEmpty()) vectorStore.save()
+        saveMeta(meta)
+        Log.i(TAG, "Delta update: $newChunks new chunks, $changedFiles changed files, ${removedPaths.size} removed")
+        newChunks
+    }
+
+    private fun collectSupportedFiles(rootDir: DocumentFile): List<DocumentFile> {
         val processedDirs = mutableSetOf<String>()
-        val seenUris = mutableSetOf<String>()
+        val found = mutableListOf<DocumentFile>()
 
         fun walkDir(dir: DocumentFile) {
             val dirUri = dir.uri.toString()
@@ -88,34 +122,37 @@ class FileIndexer(
                 } else if (file.isFile) {
                     val name = file.name?.lowercase() ?: continue
                     val ext = name.substringAfterLast('.', "")
-                    if (ext !in SUPPORTED_EXTENSIONS) continue
-                    seenUris.add(file.uri.toString())
+                    if (ext in SUPPORTED_EXTENSIONS) found.add(file)
                 }
             }
         }
-
         walkDir(rootDir)
 
-        var newChunks = 0
+        if (found.size <= config.maxIndexedFiles) return found
+        Log.w(TAG, "Agent folder has ${found.size} indexable files — capping at ${config.maxIndexedFiles}")
+        return found.take(config.maxIndexedFiles)
+    }
 
-        for (uriStr in seenUris) {
-            val uri = Uri.parse(uriStr)
-            val file = DocumentFile.fromSingleUri(context, uri) ?: continue
-
-            val text = readFileContent(file) ?: continue
-            if (text.isBlank()) continue
-
-            val chunks = chunkText(text, uriStr)
-            for ((chunkText, _) in chunks) {
-                val embedding = embedEngine.embed(chunkText) ?: continue
-                vectorStore.insert(uriStr, chunkText, embedding)
-                newChunks++
-            }
+    private fun loadMeta(): MutableMap<String, Long> {
+        if (!metaFile.exists()) return mutableMapOf()
+        return try {
+            metaFile.readLines().mapNotNull { line ->
+                val sep = line.lastIndexOf('\t')
+                val mtime = if (sep < 0) null else line.substring(sep + 1).toLongOrNull()
+                if (sep < 0 || mtime == null) null else line.substring(0, sep) to mtime
+            }.toMap(mutableMapOf())
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to read index metadata: ${e.message}")
+            mutableMapOf()
         }
+    }
 
-        if (newChunks > 0) vectorStore.save()
-        Log.i(TAG, "Delta update: $newChunks new chunks")
-        newChunks
+    private fun saveMeta(meta: Map<String, Long>) {
+        try {
+            metaFile.writeText(meta.entries.joinToString("\n") { "${it.key}\t${it.value}" })
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to write index metadata: ${e.message}")
+        }
     }
 
     private fun readFileContent(file: DocumentFile): String? {
@@ -145,12 +182,11 @@ class FileIndexer(
 
             if (current.length + trimmed.length + 2 > chunkSize && current.isNotEmpty()) {
                 chunks.add(current.toString() to currentStart)
-                val keepLen = (overlap).coerceAtMost(current.length)
+                val keepLen = overlap.coerceAtMost(current.length)
+                val tail = current.toString().takeLast(keepLen) // capture before clear() empties current
                 currentStart += current.length - keepLen
                 current.clear()
-                if (keepLen > 0) {
-                    current.append(current.toString().takeLast(keepLen))
-                }
+                current.append(tail)
             }
 
             if (trimmed.length > chunkSize) {
