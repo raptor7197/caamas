@@ -1,16 +1,21 @@
 import argparse
+import json
 import logging
-import numpy as np
-from typing import Optional
+from typing import List, Tuple
 
-import flwr as fl
+import numpy as np
 import tensorflow as tf
+from flwr.client import ClientApp, NumPyClient
+from flwr.common import Context
+from flwr.server import ServerApp, ServerAppComponents, ServerConfig
+from flwr.server.strategy import FedAvg
+from flwr.simulation import run_simulation
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("camms.simulation")
 
 
-class GruClient(fl.client.NumPyClient):
+class GruClient(NumPyClient):
     def __init__(
         self,
         model: tf.keras.Model,
@@ -85,19 +90,6 @@ def create_synthetic_client_data(
     return (x[:split], y[:split]), (x[split:], y[split:])
 
 
-def client_fn(context: fl.client.ClientAppContext) -> fl.client.Client:
-    # Each simulated client has slightly different usage patterns
-    user_id = context.node_id if context.node_id else 42
-    seed = user_id % 10000
-
-    train, val = create_synthetic_client_data(
-        vocab_size=500, seq_len=10, num_samples=200, seed=seed
-    )
-
-    model = build_gru_model(vocab_size=500)
-    return GruClient(model, train, val, user_id)
-
-
 def build_gru_model(vocab_size: int = 500) -> tf.keras.Model:
     inputs = tf.keras.Input(shape=(10,), dtype=tf.int32)
     x = tf.keras.layers.Embedding(vocab_size, 128, mask_zero=True)(inputs)
@@ -114,6 +106,29 @@ def build_gru_model(vocab_size: int = 500) -> tf.keras.Model:
     return model
 
 
+def evaluate_metrics_fn(metrics: List[Tuple[int, dict]]) -> dict:
+    """`evaluate_metrics_aggregation_fn` contract: (num_examples, metrics) pairs -> dict."""
+    total = sum(n for n, _ in metrics)
+    if total == 0:
+        return {}
+    return {"accuracy": sum(n * m.get("accuracy", 0.0) for n, m in metrics) / total}
+
+
+def _make_client_fn(vocab_size: int):
+    def client_fn(context: Context):
+        # Each simulated client has slightly different usage patterns
+        user_id = context.node_id if context.node_id else 42
+        seed = user_id % 10000
+
+        train, val = create_synthetic_client_data(
+            vocab_size=vocab_size, seq_len=10, num_samples=200, seed=seed
+        )
+        model = build_gru_model(vocab_size=vocab_size)
+        return GruClient(model, train, val, user_id).to_client()
+
+    return client_fn
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--num-clients", type=int, default=100)
@@ -125,37 +140,47 @@ def main():
         f"Starting FL simulation with {args.num_clients} clients, {args.rounds} rounds"
     )
 
-    def _client_fn(cid: str) -> fl.client.Client:
-        seed = hash(cid) % 10000
-        train, val = create_synthetic_client_data(
-            vocab_size=args.vocab_size, seq_len=10, num_samples=200, seed=seed
+    client_app = ClientApp(client_fn=_make_client_fn(args.vocab_size))
+
+    # run_simulation() doesn't hand back a reliable cross-version History object, so the
+    # strategy records its own round-by-round results instead of trusting a return value.
+    round_metrics: List[dict] = []
+
+    class RecordingFedAvg(FedAvg):
+        def aggregate_evaluate(self, server_round, results, failures):
+            aggregated = super().aggregate_evaluate(server_round, results, failures)
+            if aggregated is not None:
+                loss, metrics = aggregated
+                round_metrics.append({"round": server_round, "loss": loss, **metrics})
+            return aggregated
+
+    def server_fn(context: Context) -> ServerAppComponents:
+        strategy = RecordingFedAvg(
+            fraction_fit=0.3,
+            fraction_evaluate=0.2,
+            min_fit_clients=max(1, int(args.num_clients * 0.3)),
+            min_evaluate_clients=1,
+            min_available_clients=args.num_clients,
+            evaluate_metrics_aggregation_fn=evaluate_metrics_fn,
         )
-        model = build_gru_model(args.vocab_size)
-        return GruClient(model, train, val, int(cid))
+        return ServerAppComponents(strategy=strategy, config=ServerConfig(num_rounds=args.rounds))
 
-    strategy = fl.server.strategy.FedAvg(
-        fraction_fit=0.3,
-        fraction_evaluate=0.2,
-        min_fit_clients=max(1, int(args.num_clients * 0.3)),
-        min_evaluate_clients=1,
-        min_available_clients=args.num_clients,
+    server_app = ServerApp(server_fn=server_fn)
+
+    run_simulation(
+        server_app=server_app,
+        client_app=client_app,
+        num_supernodes=args.num_clients,
+        backend_config={"client_resources": {"num_cpus": 1}},
     )
 
-    history = fl.simulation.start_simulation(
-        client_fn=_client_fn,
-        num_clients=args.num_clients,
-        config=fl.server.ServerConfig(num_rounds=args.rounds),
-        strategy=strategy,
-        client_resources={"num_cpus": 1},
-    )
-
-    logger.info(f"FL simulation complete.")
-    logger.info(f"Final accuracy: {history.metrics_centralized.get('accuracy', [[0]])[-1][1]:.3f}")
+    logger.info("FL simulation complete.")
+    if round_metrics:
+        logger.info(f"Final round metrics: {round_metrics[-1]}")
 
     results_path = "models/fl_simulation_results.json"
     with open(results_path, "w") as f:
-        import json
-        json.dump(history.metrics_centralized, f, indent=2)
+        json.dump(round_metrics, f, indent=2)
     logger.info(f"Results saved to {results_path}")
 
 
