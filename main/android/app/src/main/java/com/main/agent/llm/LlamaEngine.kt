@@ -2,10 +2,14 @@ package com.main.agent.llm
 
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 private const val TAG = "LlamaEngine"
@@ -49,20 +53,26 @@ class LlamaEngine {
     }
 
     // ── State ────────────────────────────────────────────────────────────────
-    private var handle: Long = 0L
+    @Volatile private var handle: Long = 0L
     @Volatile private var loaded = false
+
+    // Serializes load/unload against an in-flight inference so the native handle
+    // is never freed while nativeInfer() is still using it (use-after-free).
+    private val lifecycleMutex = Mutex()
 
     val isLoaded: Boolean get() = loaded
 
     // ── Model loading ────────────────────────────────────────────────────────
     suspend fun loadModel(path: String, cap: DeviceCapability.Info): Boolean =
-        withContext(Dispatchers.IO) {
-            if (loaded) unload()
-            Log.i(TAG, "Loading model from $path  ctx=${cap.recommendedCtx}  threads=${cap.recommendedThreads}")
-            handle = nativeLoadModel(path, cap.recommendedCtx, cap.recommendedThreads, cap.hasVulkan)
-            loaded = handle != 0L
-            if (!loaded) Log.e(TAG, "nativeLoadModel returned 0")
-            loaded
+        lifecycleMutex.withLock {
+            withContext(Dispatchers.IO) {
+                if (loaded) unloadLocked()
+                Log.i(TAG, "Loading model from $path  ctx=${cap.recommendedCtx}  threads=${cap.recommendedThreads}")
+                handle = nativeLoadModel(path, cap.recommendedCtx, cap.recommendedThreads, cap.hasVulkan)
+                loaded = handle != 0L
+                if (!loaded) Log.e(TAG, "nativeLoadModel returned 0")
+                loaded
+            }
         }
 
     // ── Chat template ─────────────────────────────────────────────────────────
@@ -98,6 +108,16 @@ class LlamaEngine {
             return@callbackFlow
         }
 
+        // Hold the lock for the whole call (through awaitClose) so unload() can't
+        // free the handle out from under nativeInfer / the pending cancel signal.
+        lifecycleMutex.lock()
+        val activeHandle = handle
+        if (activeHandle == 0L) {
+            lifecycleMutex.unlock()
+            close(IllegalStateException("Model not loaded"))
+            return@callbackFlow
+        }
+
         val callback = object : InferenceCallback {
             override fun onToken(token: String): Boolean {
                 trySend(token)
@@ -113,22 +133,30 @@ class LlamaEngine {
             }
         }
 
-        withContext(Dispatchers.IO) {
-            nativeInfer(handle, prompt, maxTokens, temperature, callback)
+        try {
+            withContext(Dispatchers.IO) {
+                nativeInfer(activeHandle, prompt, maxTokens, temperature, callback)
+            }
+            // Runs as soon as collection is cancelled or the channel closes above —
+            // the native loop polls this flag between tokens (and between prefill batches).
+            awaitClose { nativeCancelInfer(activeHandle) }
+        } finally {
+            lifecycleMutex.unlock()
         }
+    }.buffer(Channel.UNLIMITED) // never silently drop tokens when the collector is slower than generation
 
-        awaitClose { nativeCancelInfer(handle) }
-    }
-
-    /** Cancel any in-progress inference immediately. */
+    /** Cancel any in-progress inference immediately (best-effort — see [handle]). */
     fun cancel() {
-        if (loaded) nativeCancelInfer(handle)
+        val h = handle
+        if (h != 0L) nativeCancelInfer(h)
     }
 
     fun vocabSize(): Int = if (loaded) nativeGetVocabSize(handle) else 0
 
     // ── Cleanup ───────────────────────────────────────────────────────────────
-    fun unload() {
+    suspend fun unload() = lifecycleMutex.withLock { unloadLocked() }
+
+    private fun unloadLocked() {
         if (handle != 0L) {
             Log.i(TAG, "Unloading model")
             nativeFreeModel(handle)
