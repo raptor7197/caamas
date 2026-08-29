@@ -1,10 +1,13 @@
 package com.main.agent.tools.device
 
+import android.Manifest
 import android.content.ContentResolver
 import android.content.Context
 import android.provider.ContactsContract
 import com.main.agent.tools.base.Tool
 import com.main.agent.tools.base.ToolResult
+import com.main.agent.tools.base.hasPermission
+import com.main.agent.tools.base.permissionDeniedResult
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -21,6 +24,10 @@ class ContactsTool : Tool {
         val query = args["query"]?.jsonPrimitive?.content?.trim()
             ?: return ToolResult.Error("Missing 'query'")
         val limit = args["limit"]?.jsonPrimitive?.content?.toIntOrNull() ?: 5
+
+        if (!context.hasPermission(Manifest.permission.READ_CONTACTS)) {
+            return permissionDeniedResult(Manifest.permission.READ_CONTACTS)
+        }
 
         return try {
             val cr  = context.contentResolver

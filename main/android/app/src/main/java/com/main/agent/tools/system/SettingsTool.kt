@@ -1,5 +1,6 @@
 package com.main.agent.tools.system
 
+import android.app.NotificationManager
 import android.content.Context
 import android.media.AudioManager
 import android.provider.Settings
@@ -69,11 +70,25 @@ class SettingsTool : Tool {
             "ringer" -> {
                 val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
                 if (action == "set" && value != null) {
-                    when (value.lowercase()) {
-                        "normal" -> audio.ringerMode = AudioManager.RINGER_MODE_NORMAL
-                        "silent" -> audio.ringerMode = AudioManager.RINGER_MODE_SILENT
-                        "vibrate" -> audio.ringerMode = AudioManager.RINGER_MODE_VIBRATE
-                        else -> return ToolResult.Error("Ringer value must be 'normal', 'silent', or 'vibrate'")
+                    val needsPolicyAccess = value.lowercase() in listOf("silent", "vibrate")
+                    val notif = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                    if (needsPolicyAccess && !notif.isNotificationPolicyAccessGranted) {
+                        return ToolResult.Error(
+                            "Silent/vibrate ringer mode needs Do Not Disturb access — grant it in Settings.",
+                            ToolResult.ErrorCode.PERMISSION_DENIED,
+                        )
+                    }
+                    try {
+                        when (value.lowercase()) {
+                            "normal" -> audio.ringerMode = AudioManager.RINGER_MODE_NORMAL
+                            "silent" -> audio.ringerMode = AudioManager.RINGER_MODE_SILENT
+                            "vibrate" -> audio.ringerMode = AudioManager.RINGER_MODE_VIBRATE
+                            else -> return ToolResult.Error("Ringer value must be 'normal', 'silent', or 'vibrate'")
+                        }
+                    } catch (e: SecurityException) {
+                        return ToolResult.Error(
+                            "Ringer permission denied: ${e.message}", ToolResult.ErrorCode.PERMISSION_DENIED,
+                        )
                     }
                     ToolResult.Success("Ringer set to $value")
                 } else {
