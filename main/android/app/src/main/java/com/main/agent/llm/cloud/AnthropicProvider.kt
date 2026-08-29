@@ -50,11 +50,12 @@ class AnthropicProvider(
             if (tools.isNotEmpty()) {
                 putJsonArray("tools") {
                     tools.forEach { toolJson ->
-                        val t = Json.parseToJsonElement(toolJson).jsonObject
+                        val fn = Json.parseToJsonElement(toolJson).jsonObject["function"]?.jsonObject
+                            ?: return@forEach
                         addJsonObject {
-                            put("name",         t["name"] ?: JsonPrimitive(""))
-                            put("description",  t["description"] ?: JsonPrimitive(""))
-                            put("input_schema", t["parameters"] ?: buildJsonObject {})
+                            put("name",         fn["name"] ?: JsonPrimitive(""))
+                            put("description",  fn["description"] ?: JsonPrimitive(""))
+                            put("input_schema", fn["parameters"] ?: buildJsonObject {})
                         }
                     }
                 }
