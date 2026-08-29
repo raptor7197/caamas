@@ -9,17 +9,20 @@ import java.io.DataOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.util.PriorityQueue
+import java.util.UUID
 import kotlin.math.sqrt
 
 private const val TAG = "VectorStore"
 private const val MAGIC = 0x52414756
-private const val VERSION = 1
+private const val VERSION = 2 // v2: stable UUID ids (was position-derived) + persisted per-chunk norm
 
 data class Chunk(
     val id: String,
     val sourcePath: String,
     val text: String,
     val embedding: FloatArray,
+    val norm: Float,
 )
 
 class VectorStore(context: Context, private val config: VectorDbConfig) {
@@ -52,6 +55,9 @@ class VectorStore(context: Context, private val config: VectorDbConfig) {
                     idIndex.clear()
 
                     for (i in 0 until count) {
+                        val idLen = dis.readInt()
+                        val id = String(ByteArray(idLen).also { dis.readFully(it) }, Charsets.UTF_8)
+
                         val srcLen = dis.readInt()
                         val srcBytes = ByteArray(srcLen).also { dis.readFully(it) }
                         val sourcePath = String(srcBytes, Charsets.UTF_8)
@@ -64,9 +70,8 @@ class VectorStore(context: Context, private val config: VectorDbConfig) {
                             for (j in floats.indices) floats[j] = dis.readFloat()
                         }
 
-                        val id = "${sourcePath}:$i"
                         val idx = chunks.size
-                        chunks.add(Chunk(id, sourcePath, text, embedding))
+                        chunks.add(Chunk(id, sourcePath, text, embedding, norm(embedding)))
                         idIndex[id] = idx
                     }
                     Log.i(TAG, "Loaded $count chunks (dim=$dim)")
@@ -89,7 +94,11 @@ class VectorStore(context: Context, private val config: VectorDbConfig) {
                     dos.writeInt(dim)
                     dos.writeInt(chunks.size)
 
-                    for ((idx, chunk) in chunks.withIndex()) {
+                    for (chunk in chunks) {
+                        val idBytes = chunk.id.toByteArray(Charsets.UTF_8)
+                        dos.writeInt(idBytes.size)
+                        dos.write(idBytes)
+
                         val srcBytes = chunk.sourcePath.toByteArray(Charsets.UTF_8)
                         dos.writeInt(srcBytes.size)
                         dos.write(srcBytes)
@@ -108,28 +117,33 @@ class VectorStore(context: Context, private val config: VectorDbConfig) {
         }
     }
 
+    /** @return the new chunk's stable id (independent of list position — safe to [delete] later). */
     fun insert(sourcePath: String, text: String, embedding: FloatArray): String {
-        val id = "${sourcePath}:${chunks.size}"
+        val id = UUID.randomUUID().toString()
         val idx = chunks.size
-        chunks.add(Chunk(id, sourcePath, text, embedding))
+        chunks.add(Chunk(id, sourcePath, text, embedding, norm(embedding)))
         idIndex[id] = idx
         return id
     }
 
     fun search(query: FloatArray, topK: Int = config.topK): List<Pair<String, Float>> {
-        if (chunks.isEmpty() || query.isEmpty()) return emptyList()
+        if (chunks.isEmpty() || query.isEmpty() || topK <= 0) return emptyList()
 
         val queryNorm = norm(query)
         if (queryNorm == 0f) return emptyList()
 
-        val scored = chunks.map { chunk ->
-            val sim = cosineSimilarity(query, chunk.embedding, queryNorm)
-            chunk.text to sim
+        // Bounded min-heap: O(n log k) instead of sorting the whole corpus for every query.
+        val heap = PriorityQueue<Pair<String, Float>>(topK, compareBy { it.second })
+        for (chunk in chunks) {
+            val sim = cosineSimilarity(query, chunk.embedding, queryNorm, chunk.norm)
+            if (heap.size < topK) {
+                heap.add(chunk.text to sim)
+            } else if (sim > (heap.peek()?.second ?: Float.NEGATIVE_INFINITY)) {
+                heap.poll()
+                heap.add(chunk.text to sim)
+            }
         }
-
-        return scored
-            .sortedByDescending { it.second }
-            .take(topK)
+        return heap.sortedByDescending { it.second }
     }
 
     fun delete(id: String): Boolean {
@@ -137,6 +151,14 @@ class VectorStore(context: Context, private val config: VectorDbConfig) {
         chunks.removeAt(idx)
         rebuildIndex()
         return true
+    }
+
+    /** Remove every chunk indexed from [sourcePath] (a file changed or disappeared). */
+    fun deleteBySource(sourcePath: String): Int {
+        val before = chunks.size
+        chunks.removeAll { it.sourcePath == sourcePath }
+        rebuildIndex()
+        return before - chunks.size
     }
 
     fun clear() {
@@ -157,15 +179,10 @@ class VectorStore(context: Context, private val config: VectorDbConfig) {
         return sqrt(sum)
     }
 
-    private fun cosineSimilarity(a: FloatArray, b: FloatArray, aNorm: Float): Float {
+    private fun cosineSimilarity(a: FloatArray, b: FloatArray, aNorm: Float, bNorm: Float): Float {
         if (a.size != b.size) return 0f
         var dot = 0f
-        var bNorm = 0f
-        for (i in a.indices) {
-            dot += a[i] * b[i]
-            bNorm += b[i] * b[i]
-        }
-        bNorm = sqrt(bNorm)
+        for (i in a.indices) dot += a[i] * b[i]
         return if (aNorm == 0f || bNorm == 0f) 0f else dot / (aNorm * bNorm)
     }
 }
