@@ -1,1 +1,0 @@
-/usr/bin/c++ -Wl,--dependency-file=CMakeFiles/test_working_set.dir/link.d "CMakeFiles/test_working_set.dir/android/camms-daemon/test/test_working_set.cpp.o" -o test_working_set  libcamms_core.a
