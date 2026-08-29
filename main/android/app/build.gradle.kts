@@ -44,6 +44,9 @@ android {
 
     buildTypes {
         release {
+            // Signed via CI-injected `-Pandroid.injected.signing.*` properties (see
+            // .github/workflows/android.yml); no signingConfig here so local
+            // `assembleRelease` without those properties produces an unsigned APK.
             isMinifyEnabled  = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -53,7 +56,7 @@ android {
         }
     }
 
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
 
     testOptions {
         unitTests.isReturnDefaultValues = true
