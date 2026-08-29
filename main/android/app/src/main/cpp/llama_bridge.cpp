@@ -5,6 +5,7 @@
 #include <atomic>
 #include <memory>
 #include <cstring>
+#include <algorithm>
 
 // llama.cpp public headers
 #include "llama.h"
@@ -189,10 +190,18 @@ Java_com_main_agent_llm_LlamaEngine_nativeInfer(
         LOGD("KV clear: encoding %d tokens from scratch", n_tokens);
     }
 
-    // ── Encode only the new (non-cached) suffix ───────────────────────────────
-    if (n_tokens > h->n_past) {
-        llama_batch batch = llama_batch_get_one(
-            tokens.data() + h->n_past, n_tokens - h->n_past);
+    // ── Encode only the new (non-cached) suffix, in chunks ────────────────────
+    // Chunking (rather than one llama_decode over the whole suffix) bounds how
+    // long a cancel request has to wait: a long tool-schema system prompt can be
+    // thousands of tokens, and prefill was previously not interruptible at all.
+    constexpr int kPrefillChunk = 256;
+    while (n_tokens > h->n_past) {
+        if (h->cancel.load()) {
+            LOGI("Prefill cancelled at n_past=%d/%d", h->n_past, n_tokens);
+            return JNI_FALSE;
+        }
+        int chunk = std::min(kPrefillChunk, n_tokens - h->n_past);
+        llama_batch batch = llama_batch_get_one(tokens.data() + h->n_past, chunk);
         if (llama_decode(h->ctx, batch) != 0) {
             LOGE("llama_decode failed on prompt suffix");
             jstring je = env->NewStringUTF("Inference error: decode failed");
@@ -200,7 +209,7 @@ Java_com_main_agent_llm_LlamaEngine_nativeInfer(
             env->DeleteLocalRef(je);
             return JNI_FALSE;
         }
-        h->n_past = n_tokens;
+        h->n_past += chunk;
     }
 
     // Remember for next call
