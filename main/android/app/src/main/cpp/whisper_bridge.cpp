@@ -4,6 +4,7 @@
 #include <vector>
 #include <cstring>
 #include <mutex>
+#include <atomic>
 
 #include "whisper.h"
 
@@ -14,7 +15,13 @@
 struct WhisperHandle {
     struct whisper_context * ctx = nullptr;
     int                      n_threads = 2;
+    std::mutex               mtx;        // serializes whisper_full against concurrent calls/free
+    std::atomic<bool>        cancel{false};
 };
+
+static bool whisper_abort_cb(void * data) {
+    return reinterpret_cast<WhisperHandle *>(data)->cancel.load();
+}
 
 extern "C"
 JNIEXPORT jlong JNICALL
@@ -59,9 +66,17 @@ Java_com_main_agent_voice_WhisperSTT_nativeTranscribe(
         return env->NewStringUTF("");
     }
 
+    std::lock_guard<std::mutex> lock(h->mtx);
+
     jfloat * pcm_arr = env->GetFloatArrayElements(j_pcm, nullptr);
+    if (!pcm_arr) {
+        LOGE("nativeTranscribe: GetFloatArrayElements failed (OOM?)");
+        return env->NewStringUTF("");
+    }
     jsize   n_samples = env->GetArrayLength(j_pcm);
     LOGI("Transcribing: n_samples=%d sample_rate=%d", n_samples, j_sample_rate);
+
+    h->cancel.store(false);
 
     whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
     params.n_threads       = h->n_threads;
@@ -71,12 +86,14 @@ Java_com_main_agent_voice_WhisperSTT_nativeTranscribe(
     params.print_progress  = false;
     params.print_realtime  = false;
     params.print_timestamps = false;
+    params.abort_callback           = whisper_abort_cb;
+    params.abort_callback_user_data = h;
 
     int ret = whisper_full(h->ctx, params, pcm_arr, (int)n_samples);
     env->ReleaseFloatArrayElements(j_pcm, pcm_arr, JNI_ABORT);
 
     if (ret != 0) {
-        LOGE("whisper_full failed: %d", ret);
+        LOGE("whisper_full failed or aborted: %d", ret);
         return env->NewStringUTF("");
     }
 
@@ -96,6 +113,16 @@ Java_com_main_agent_voice_WhisperSTT_nativeTranscribe(
 
 extern "C"
 JNIEXPORT void JNICALL
+Java_com_main_agent_voice_WhisperSTT_nativeCancelTranscribe(
+    JNIEnv *, jobject,
+    jlong j_handle)
+{
+    auto * h = reinterpret_cast<WhisperHandle *>(j_handle);
+    if (h) h->cancel.store(true);
+}
+
+extern "C"
+JNIEXPORT void JNICALL
 Java_com_main_agent_voice_WhisperSTT_nativeFreeWhisperModel(
     JNIEnv *, jobject,
     jlong j_handle)
@@ -103,6 +130,7 @@ Java_com_main_agent_voice_WhisperSTT_nativeFreeWhisperModel(
     auto * h = reinterpret_cast<WhisperHandle *>(j_handle);
     if (!h) return;
     LOGI("Freeing whisper model");
+    { std::lock_guard<std::mutex> lock(h->mtx); }  // wait out any in-flight whisper_full
     if (h->ctx) whisper_free(h->ctx);
     delete h;
 }

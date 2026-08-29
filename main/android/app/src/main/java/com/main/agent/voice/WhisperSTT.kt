@@ -15,6 +15,7 @@ class WhisperSTT(private val context: Context) {
 
     private external fun nativeLoadWhisperModel(path: String, nThreads: Int): Long
     private external fun nativeTranscribe(handle: Long, pcmData: FloatArray, sampleRate: Int): String
+    private external fun nativeCancelTranscribe(handle: Long)
     private external fun nativeFreeWhisperModel(handle: Long)
 
     private var handle: Long = 0L
@@ -32,9 +33,14 @@ class WhisperSTT(private val context: Context) {
             }
         }
 
-    fun transcribe(pcmData: FloatArray, sampleRate: Int = 16000): String {
-        if (handle == 0L) return ""
-        return nativeTranscribe(handle, pcmData, sampleRate)
+    suspend fun transcribe(pcmData: FloatArray, sampleRate: Int = 16000): String =
+        withContext(Dispatchers.IO) {
+            if (handle == 0L) "" else nativeTranscribe(handle, pcmData, sampleRate)
+        }
+
+    /** Best-effort: ask an in-flight [transcribe] to stop at the next whisper.cpp abort checkpoint. */
+    fun cancel() {
+        if (handle != 0L) nativeCancelTranscribe(handle)
     }
 
     fun unload() {
