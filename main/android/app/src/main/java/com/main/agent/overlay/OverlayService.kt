@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
@@ -15,6 +16,7 @@ import android.view.WindowManager
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -36,8 +38,21 @@ class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner {
         lifecycleRegistry.currentState = Lifecycle.State.CREATED
         _viewModelStore = ViewModelStore()
 
+        // Check overlay permission before going foreground — going FGS just to stopSelf()
+        // immediately after is wasted (and used to hide behind the 2-arg startForeground bug below).
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+            stopSelf()
+            return
+        }
+
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, createNotification())
+        // This service holds neither an active mic recording nor a media-projection token — it's
+        // a floating launcher bubble, so `specialUse` is the FGS type whose prerequisites we
+        // actually meet (targetSdk 34 requires the 3-arg overload with a matching manifest type).
+        ServiceCompat.startForeground(
+            this, NOTIFICATION_ID, createNotification(),
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+        )
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
