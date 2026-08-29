@@ -47,6 +47,11 @@ class OllamaProvider(
                     addJsonObject { put("role", role); put("content", content) }
                 }
             }
+            if (tools.isNotEmpty()) {
+                putJsonArray("tools") {
+                    tools.forEach { add(Json.parseToJsonElement(it)) }
+                }
+            }
         }
 
         val url = "${baseUrl.trimEnd('/')}/api/chat"
@@ -78,9 +83,15 @@ class OllamaProvider(
                     if (line.isBlank()) continue
                     try {
                         val json = Json.parseToJsonElement(line).jsonObject
-                        json["message"]?.jsonObject
-                            ?.get("content")?.jsonPrimitive?.contentOrNull
-                            ?.let { trySend(it) }
+                        val message = json["message"]?.jsonObject
+                        message?.get("content")?.jsonPrimitive?.contentOrNull
+                            ?.let { if (it.isNotEmpty()) trySend(it) }
+                        message?.get("tool_calls")?.jsonArray?.forEach { tcElem ->
+                            val fn = tcElem.jsonObject["function"]?.jsonObject ?: return@forEach
+                            val fnName = fn["name"]?.jsonPrimitive?.contentOrNull ?: ""
+                            val fnArgs = fn["arguments"]?.toString() ?: "{}"
+                            trySend("[TOOL_CALL]{\"name\":\"$fnName\",\"args\":$fnArgs}[/TOOL_CALL]")
+                        }
                         if (json["done"]?.jsonPrimitive?.boolean == true) break
                     } catch (_: Exception) {}
                 }
