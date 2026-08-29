@@ -101,14 +101,16 @@ class MainActivity : ComponentActivity() {
         val prefs = app.prefs
         val cap   = DeviceCapability.detect(this)
 
-        // Accept gemini_key via adb: am start -n ... --es gemini_key "AIza..."
-        intent.getStringExtra("gemini_key")?.takeIf { it.isNotBlank() }?.let { key ->
-            kotlinx.coroutines.runBlocking { prefs.setGeminiKey(key) }
-        }
-
-        // Accept cloud_provider via adb: --es cloud_provider "gemini"
-        intent.getStringExtra("cloud_provider")?.takeIf { it.isNotBlank() }?.let { provider ->
-            kotlinx.coroutines.runBlocking { prefs.setCloudProvider(provider) }
+        // Debug-only convenience for local testing. MainActivity is exported=true (it's the
+        // launcher), so any installed app can otherwise `am start` this and inject/overwrite
+        // the user's API key or provider — never accept these extras in a release build.
+        if (BuildConfig.DEBUG) {
+            intent.getStringExtra("gemini_key")?.takeIf { it.isNotBlank() }?.let { key ->
+                lifecycleScope.launch { prefs.setGeminiKey(key) }
+            }
+            intent.getStringExtra("cloud_provider")?.takeIf { it.isNotBlank() }?.let { provider ->
+                lifecycleScope.launch { prefs.setCloudProvider(provider) }
+            }
         }
 
         setContent {
