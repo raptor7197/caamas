@@ -60,6 +60,23 @@ class GeminiProvider(
                 put("temperature", temperature.toDouble())
                 put("maxOutputTokens", maxTokens)
             }
+            if (tools.isNotEmpty()) {
+                putJsonArray("tools") {
+                    addJsonObject {
+                        putJsonArray("function_declarations") {
+                            tools.forEach { toolJson ->
+                                val fn = Json.parseToJsonElement(toolJson).jsonObject["function"]?.jsonObject
+                                    ?: return@forEach
+                                addJsonObject {
+                                    put("name",        fn["name"] ?: JsonPrimitive(""))
+                                    put("description",  fn["description"] ?: JsonPrimitive(""))
+                                    put("parameters",   fn["parameters"] ?: buildJsonObject {})
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         val url = "$BASE_URL/$model:streamGenerateContent?alt=sse"
@@ -89,15 +106,22 @@ class GeminiProvider(
                     val data = line.removePrefix("data: ").trim()
                     if (data == "[DONE]") break
                     try {
-                        val json = Json.parseToJsonElement(data).jsonObject
-                        val text = json["candidates"]?.jsonArray
+                        val json  = Json.parseToJsonElement(data).jsonObject
+                        val parts = json["candidates"]?.jsonArray
                             ?.firstOrNull()?.jsonObject
                             ?.get("content")?.jsonObject
                             ?.get("parts")?.jsonArray
-                            ?.firstOrNull()?.jsonObject
-                            ?.get("text")?.jsonPrimitive?.contentOrNull
-                        if (text != null) {
-                            trySend(text)
+
+                        if (parts != null) {
+                            parts.forEach { partElem ->
+                                val part = partElem.jsonObject
+                                part["text"]?.jsonPrimitive?.contentOrNull?.let { trySend(it) }
+                                part["functionCall"]?.jsonObject?.let { fc ->
+                                    val fnName = fc["name"]?.jsonPrimitive?.contentOrNull ?: ""
+                                    val fnArgs = fc["args"]?.toString() ?: "{}"
+                                    trySend("[TOOL_CALL]{\"name\":\"$fnName\",\"args\":$fnArgs}[/TOOL_CALL]")
+                                }
+                            }
                         } else {
                             json["promptFeedback"]?.jsonObject?.let { pf ->
                                 val reason = pf["blockReason"]?.jsonPrimitive?.contentOrNull
@@ -105,6 +129,7 @@ class GeminiProvider(
                                     val err = "Blocked: $reason"
                                     Log.e(TAG, err)
                                     close(IOException(err))
+                                    return@withContext
                                 }
                             }
                         }
