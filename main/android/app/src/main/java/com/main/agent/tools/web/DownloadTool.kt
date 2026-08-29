@@ -10,9 +10,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
-import okhttp3.Request
-import java.net.URI
 import java.util.concurrent.TimeUnit
+
+private const val MAX_DOWNLOAD_BYTES = 200L * 1024 * 1024 // 200MB cap against unbounded OOM/disk-fill
 
 class DownloadTool(private val agentFolderUri: String?) : Tool {
     override val name        = "download_file"
@@ -26,7 +26,7 @@ class DownloadTool(private val agentFolderUri: String?) : Tool {
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
-        .followRedirects(true)
+        .followRedirects(false) // SsrfGuard.executeSafely re-validates and follows redirects itself
         .build()
 
     override suspend fun execute(context: Context, args: JsonObject): ToolResult {
@@ -34,62 +34,69 @@ class DownloadTool(private val agentFolderUri: String?) : Tool {
             ?: return ToolResult.Error("Missing 'url' argument")
         val filenameHint = args["filename"]?.jsonPrimitive?.content?.trim()
 
-        val validation = validateUrl(url)
-        if (validation != null) return validation
+        SsrfGuard.validate(url)?.let { return ToolResult.Error(it) }
 
         return try {
             withContext(Dispatchers.IO) {
-                val resp = client.newCall(Request.Builder().url(url).build()).execute()
-                if (!resp.isSuccessful) {
-                    return@withContext ToolResult.Error("HTTP ${resp.code} for $url",
-                        ToolResult.ErrorCode.NETWORK_ERROR)
+                val resp = SsrfGuard.executeSafely(client, url)
+                resp.use {
+                    if (!resp.isSuccessful) {
+                        return@withContext ToolResult.Error("HTTP ${resp.code} for $url",
+                            ToolResult.ErrorCode.NETWORK_ERROR)
+                    }
+
+                    val body = resp.body ?: return@withContext ToolResult.Error("Empty response body")
+
+                    val filename = filenameHint ?: extractFilename(resp)
+                    val folderUri = agentFolderUri
+                    if (folderUri.isNullOrBlank()) {
+                        return@withContext ToolResult.Error("Agent folder not set. Configure it in Settings.")
+                    }
+
+                    val folder = DocumentFile.fromTreeUri(context, Uri.parse(folderUri))
+                        ?: return@withContext ToolResult.Error("Cannot access agent folder",
+                            ToolResult.ErrorCode.PERMISSION_DENIED)
+
+                    val safeName = sanitizeFilename(filename)
+                    val file = folder.createFile(body.contentType()?.type ?: "application/octet-stream", safeName)
+                        ?: return@withContext ToolResult.Error("Failed to create file in agent folder")
+
+                    val written = context.contentResolver.openOutputStream(file.uri)?.use { out ->
+                        streamBounded(body.byteStream(), out, MAX_DOWNLOAD_BYTES)
+                    } ?: return@withContext ToolResult.Error("Failed to write file")
+
+                    if (written < 0) {
+                        file.delete()
+                        return@withContext ToolResult.Error(
+                            "File exceeds the ${MAX_DOWNLOAD_BYTES / (1024 * 1024)}MB download limit")
+                    }
+
+                    ToolResult.Success("Downloaded $safeName ($written bytes)")
                 }
-
-                val body = resp.body ?: return@withContext ToolResult.Error("Empty response body")
-
-                val filename = filenameHint ?: extractFilename(resp)
-                val folderUri = agentFolderUri
-                if (folderUri.isNullOrBlank()) {
-                    return@withContext ToolResult.Error("Agent folder not set. Configure it in Settings.")
-                }
-
-                val folder = DocumentFile.fromTreeUri(context, Uri.parse(folderUri))
-                    ?: return@withContext ToolResult.Error("Cannot access agent folder",
-                        ToolResult.ErrorCode.PERMISSION_DENIED)
-
-                val safeName = sanitizeFilename(filename)
-                val file = folder.createFile(body.contentType()?.type ?: "application/octet-stream", safeName)
-                    ?: return@withContext ToolResult.Error("Failed to create file in agent folder")
-
-                context.contentResolver.openOutputStream(file.uri)?.use { out ->
-                    out.write(body.bytes())
-                } ?: return@withContext ToolResult.Error("Failed to write file")
-
-                ToolResult.Success("Downloaded $safeName (${body.contentLength()} bytes)")
             }
+        } catch (e: SsrfBlockedException) {
+            ToolResult.Error(e.message ?: "Blocked by SSRF guard")
         } catch (e: Exception) {
             ToolResult.Error("Download failed: ${e.message}",
                 ToolResult.ErrorCode.NETWORK_ERROR)
         }
     }
 
-    private fun validateUrl(rawUrl: String): ToolResult? {
-        if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) {
-            return ToolResult.Error("URL must start with http:// or https://")
+    /** Streams [ins] into [out] in chunks, aborting once [maxBytes] would be exceeded.
+     *  @return bytes written, or -1 if the cap was hit (caller should discard the partial file). */
+    private fun streamBounded(ins: java.io.InputStream, out: java.io.OutputStream, maxBytes: Long): Long {
+        ins.use {
+            val buf = ByteArray(64 * 1024)
+            var total = 0L
+            while (true) {
+                val n = it.read(buf)
+                if (n == -1) break
+                total += n
+                if (total > maxBytes) return -1
+                out.write(buf, 0, n)
+            }
+            return total
         }
-        val uri = try { URI(rawUrl) } catch (e: Exception) {
-            return ToolResult.Error("Invalid URL format")
-        }
-        val host = uri.host?.lowercase() ?: return ToolResult.Error("URL has no host")
-
-        if (PRIVATE_HOSTS.any { host == it } ||
-            host.endsWith(".local") || host.endsWith(".internal")) {
-            return ToolResult.Error("Cannot download from private/internal hosts")
-        }
-        if (PRIVATE_IP_PREFIXES.any { host.startsWith(it) }) {
-            return ToolResult.Error("Cannot download from private IP addresses")
-        }
-        return null
     }
 
     private fun extractFilename(response: okhttp3.Response): String {
@@ -109,20 +116,5 @@ class DownloadTool(private val agentFolderUri: String?) : Tool {
         if (sanitized.length > 120) return sanitized.take(120)
         if (sanitized.isBlank()) return "download_${System.currentTimeMillis()}"
         return sanitized
-    }
-
-    companion object {
-        private val PRIVATE_HOSTS = setOf(
-            "localhost", "127.0.0.1", "127.0.1.1", "0.0.0.0",
-            "metadata.google.internal", "169.254.169.254",
-            "::1", "[::1]",
-        )
-        private val PRIVATE_IP_PREFIXES = listOf(
-            "10.", "172.16.", "172.17.", "172.18.", "172.19.",
-            "172.20.", "172.21.", "172.22.", "172.23.",
-            "172.24.", "172.25.", "172.26.", "172.27.",
-            "172.28.", "172.29.", "172.30.", "172.31.",
-            "192.168.", "169.254.",
-        )
     }
 }

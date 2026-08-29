@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext HTTP is only used for user-provided targets: a self-hosted Ollama
+  server (LAN, often plain http://) and BrowserTool/DownloadTool fetches of
+  arbitrary URLs. Those tools independently reject loopback/private/link-local
+  targets (SSRF guard), so this does not widen reachability — it only permits
+  the scheme for hosts the SSRF guard already allows.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
