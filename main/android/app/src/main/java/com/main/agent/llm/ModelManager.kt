@@ -7,11 +7,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
+import java.io.FileOutputStream
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 
 private const val TAG = "ModelManager"
 
@@ -87,11 +92,15 @@ class ModelManager(
             DeviceCapability.ModelTier.SMALL -> ModelSpec.QWEN_2_5_1_5B
         }
 
+    // Dedupe concurrent downloads of the same destination file (e.g. two callers
+    // both racing ensureReady() at startup).
+    private val downloadLocks = ConcurrentHashMap<String, Mutex>()
+
     suspend fun ensureReady(): Boolean {
         val spec = targetModel
         val file = File(modelsDir, spec.filename)
 
-        if (!file.exists() || !verifyChecksum(file, spec.sha256)) {
+        if (!file.exists() || !verifyChecksum(file, spec.sha256, spec.sizeBytes)) {
             _state.value = State.Downloading(0f, spec.sizeBytes)
             val ok = downloadModel(spec, file)
             if (!ok) {
@@ -106,57 +115,100 @@ class ModelManager(
         return loaded
     }
 
-    private suspend fun downloadModel(spec: ModelSpec, dest: File): Boolean =
-        withContext(Dispatchers.IO) {
-            val tmp = File(dest.parent, "${dest.name}.tmp")
-            try {
-                val client = OkHttpClient.Builder().build()
-                val req = Request.Builder().url(spec.downloadUrl).build()
-                val resp = client.newCall(req).execute()
-                if (!resp.isSuccessful) {
-                    Log.e(TAG, "HTTP ${resp.code} downloading ${spec.filename}")
-                    return@withContext false
-                }
-                val body = resp.body ?: return@withContext false
-                val total = body.contentLength()
-                var rx = 0L
+    private suspend fun downloadModel(spec: ModelSpec, dest: File): Boolean {
+        val lock = downloadLocks.getOrPut(dest.absolutePath) { Mutex() }
+        return lock.withLock {
+            withContext(Dispatchers.IO) {
+                // Someone else may have finished the download while we waited for the lock.
+                if (dest.exists() && verifyChecksum(dest, spec.sha256, spec.sizeBytes)) return@withContext true
 
-                tmp.outputStream().use { out ->
-                    body.byteStream().use { ins ->
-                        val buf = ByteArray(256 * 1024)
-                        var n: Int
-                        while (ins.read(buf).also { n = it } != -1) {
-                            out.write(buf, 0, n)
-                            rx += n
-                            _state.value = State.Downloading(
-                                progress = if (total > 0) rx.toFloat() / total else 0f,
-                                bytesTotal = total,
-                            )
+                val tmp = File(dest.parent, "${dest.name}.tmp")
+                try {
+                    val client = OkHttpClient.Builder()
+                        .connectTimeout(30, TimeUnit.SECONDS)
+                        .readTimeout(60, TimeUnit.SECONDS)
+                        .writeTimeout(60, TimeUnit.SECONDS)
+                        .build()
+
+                    val resumeFrom = if (tmp.exists()) tmp.length() else 0L
+                    val reqBuilder = Request.Builder().url(spec.downloadUrl)
+                    if (resumeFrom > 0) reqBuilder.header("Range", "bytes=$resumeFrom-")
+                    val resp = client.newCall(reqBuilder.build()).execute()
+
+                    if (!resp.isSuccessful) {
+                        Log.e(TAG, "HTTP ${resp.code} downloading ${spec.filename}")
+                        return@withContext false
+                    }
+                    val resumed = resp.code == 206
+                    if (resumeFrom > 0 && !resumed) {
+                        // Server ignored the Range request — must restart from scratch.
+                        tmp.delete()
+                    }
+                    val body = resp.body ?: return@withContext false
+                    val startAt = if (resumed) resumeFrom else 0L
+                    val total   = body.contentLength().let { if (it > 0 && resumed) it + startAt else it }
+                    var rx = startAt
+
+                    FileOutputStream(tmp, resumed).use { out ->
+                        body.byteStream().use { ins ->
+                            val buf = ByteArray(256 * 1024)
+                            var n: Int
+                            while (ins.read(buf).also { n = it } != -1) {
+                                out.write(buf, 0, n)
+                                rx += n
+                                _state.value = State.Downloading(
+                                    progress = if (total > 0) rx.toFloat() / total else 0f,
+                                    bytesTotal = total,
+                                )
+                            }
                         }
                     }
-                }
 
-                _state.value = State.Verifying
-                if (!verifyChecksum(tmp, spec.sha256)) {
-                    Log.e(TAG, "Checksum mismatch for ${spec.filename}")
-                    tmp.delete()
-                    return@withContext false
-                }
+                    _state.value = State.Verifying
+                    if (!verifyChecksum(tmp, spec.sha256, spec.sizeBytes)) {
+                        Log.e(TAG, "Checksum/size mismatch for ${spec.filename}")
+                        tmp.delete()
+                        return@withContext false
+                    }
 
-                tmp.renameTo(dest)
-                Log.i(TAG, "Model downloaded: ${dest.absolutePath}  (${rx / 1_048_576} MB)")
-                true
-            } catch (e: Exception) {
-                Log.e(TAG, "Download error: ${e.message}", e)
-                tmp.delete()
-                false
+                    if (dest.exists() && !dest.delete()) {
+                        Log.e(TAG, "Could not remove stale file at ${dest.absolutePath}")
+                        return@withContext false
+                    }
+                    if (!tmp.renameTo(dest)) {
+                        // renameTo can fail silently across filesystems — fall back to copy+delete.
+                        try {
+                            tmp.copyTo(dest, overwrite = true)
+                            tmp.delete()
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to install downloaded model: ${e.message}", e)
+                            return@withContext false
+                        }
+                    }
+                    Log.i(TAG, "Model downloaded: ${dest.absolutePath}  (${rx / 1_048_576} MB)")
+                    true
+                } catch (e: Exception) {
+                    Log.e(TAG, "Download error: ${e.message}", e)
+                    false
+                }
             }
         }
+    }
 
-    internal suspend fun verifyChecksum(file: File, expected: String): Boolean =
+    /**
+     * @param expectedSize When >= 0, the file size is checked first and must match exactly —
+     * this is what lets us reject a corrupt/truncated download even for models that ship
+     * with a blank [expected] SHA-256 (issue #11). Omit it only for ad-hoc hash checks where
+     * the true size isn't known (matches this function's pre-fix behavior).
+     */
+    internal suspend fun verifyChecksum(file: File, expected: String, expectedSize: Long = -1L): Boolean =
         withContext(Dispatchers.IO) {
+            if (expectedSize >= 0 && file.length() != expectedSize) {
+                Log.e(TAG, "Size mismatch for ${file.name}: got ${file.length()}, expected $expectedSize")
+                return@withContext false
+            }
             if (expected.isBlank()) {
-                Log.w(TAG, "No SHA-256 configured for ${file.name} — skipping integrity check (issue #11)")
+                Log.w(TAG, "No SHA-256 configured for ${file.name} — ${if (expectedSize >= 0) "size matched, accepting" else "skipping integrity check"} (issue #11)")
                 return@withContext true
             }
             try {
