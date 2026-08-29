@@ -44,7 +44,9 @@ class VoicePipeline(
 
     private var recordJob: Job? = null
     private var audioRecord: AudioRecord? = null
-    private val pcmBuffer = ShortArray(MAX_SAMPLES)
+    // Allocated for the duration of a listen/transcribe cycle only (~960KB) rather
+    // than held for the pipeline's whole lifetime.
+    private var pcmBuffer: ShortArray? = null
     @Volatile private var recordLen = 0
     @Volatile private var recording = false
 
@@ -75,6 +77,8 @@ class VoicePipeline(
                 return
             }
 
+            val buffer = ShortArray(MAX_SAMPLES)
+            pcmBuffer = buffer
             recordLen = 0
             recording = true
             audioRecord?.startRecording()
@@ -85,7 +89,7 @@ class VoicePipeline(
                 while (recording && recordLen < MAX_SAMPLES) {
                     val n = audioRecord?.read(buf, 0, buf.size) ?: 0
                     if (n > 0 && recordLen + n <= MAX_SAMPLES) {
-                        System.arraycopy(buf, 0, pcmBuffer, recordLen, n)
+                        System.arraycopy(buf, 0, buffer, recordLen, n)
                         recordLen += n
                     }
                 }
@@ -99,7 +103,7 @@ class VoicePipeline(
         }
     }
 
-    fun stopListening(): String? {
+    suspend fun stopListening(): String? {
         recording = false
         audioRecord?.stop()
         audioRecord?.release()
@@ -109,17 +113,20 @@ class VoicePipeline(
 
         _state.value = State.Idle
 
-        if (recordLen == 0) {
+        val buffer = pcmBuffer
+        pcmBuffer = null
+        if (recordLen == 0 || buffer == null) {
             Log.d(TAG, "No audio recorded")
             return null
         }
 
         val pcmFloat = FloatArray(recordLen)
         for (i in 0 until recordLen) {
-            pcmFloat[i] = pcmBuffer[i].toFloat() / Short.MAX_VALUE
+            pcmFloat[i] = buffer[i].toFloat() / Short.MAX_VALUE
         }
         recordLen = 0
 
+        // Whisper inference is a blocking JNI call — transcribe() dispatches to IO itself.
         val text = stt.transcribe(pcmFloat, SAMPLE_RATE)
         Log.d(TAG, "Transcription: ${text.take(80)}")
         return text.ifBlank { null }
@@ -160,6 +167,9 @@ class VoicePipeline(
         audioRecord = null
         recordJob?.cancel()
         recordJob = null
+        pcmBuffer = null
+        recordLen = 0
+        stt.cancel()
         tts.stop()
         _state.value = State.Idle
     }
