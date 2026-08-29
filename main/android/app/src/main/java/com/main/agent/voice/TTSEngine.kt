@@ -40,8 +40,8 @@ class TTSEngine(context: Context) {
         val id = UUID.randomUUID().toString()
         tts!!.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {}
-            override fun onDone(utteranceId: String?)  { if (utteranceId == id) cont.resume(Unit) }
-            override fun onError(utteranceId: String?) { cont.resume(Unit) }
+            override fun onDone(utteranceId: String?)  { if (utteranceId == id && cont.isActive) cont.resume(Unit) }
+            override fun onError(utteranceId: String?) { if (utteranceId == id && cont.isActive) cont.resume(Unit) }
         })
 
         tts!!.speak(text, TextToSpeech.QUEUE_FLUSH, null, id)
