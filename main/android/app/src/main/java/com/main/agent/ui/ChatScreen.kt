@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -220,17 +221,35 @@ fun ChatScreen(
 
             uiState.error?.let { err ->
                 Surface(
-                    color    = MaterialTheme.colorScheme.errorContainer,
+                    color    = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                     shape    = RoundedCornerShape(18.dp),
                     border   = BorderStroke(2.dp, AgentLine),
                 ) {
                     Row(
-                        Modifier.padding(12.dp),
+                        Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Text(err, Modifier.weight(1f), color = MaterialTheme.colorScheme.onErrorContainer, fontSize = 13.sp)
-                        TextButton(onClick = viewModel::clearError) { Text("Dismiss") }
+                        Icon(
+                            imageVector = Icons.Filled.ErrorOutline,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onError,
+                        )
+                        Text(
+                            text     = err,
+                            modifier = Modifier.weight(1f),
+                            color    = MaterialTheme.colorScheme.onError,
+                            fontSize = 13.sp,
+                            lineHeight = 18.sp,
+                        )
+                        TextButton(
+                            onClick = viewModel::clearError,
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = MaterialTheme.colorScheme.onError,
+                            ),
+                        ) { Text("Dismiss") }
                     }
                 }
             }

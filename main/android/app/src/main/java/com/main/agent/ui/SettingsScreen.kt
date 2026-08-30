@@ -29,6 +29,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.main.agent.preferences.UserPreferences
 import com.main.agent.ui.theme.AgentBlue
+import com.main.agent.ui.theme.AgentPaper
 import com.main.agent.ui.theme.AgentSurface2
 import kotlinx.coroutines.launch
 
@@ -96,7 +97,7 @@ fun SettingsScreen(
                 Text(
                     "Files you place here will be indexed and available to the assistant.",
                     fontSize = 12.sp,
-                    color    = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                    color    = AgentPaper.copy(alpha = 0.6f),
                     modifier = Modifier.padding(start = 4.dp),
                 )
             }
@@ -106,7 +107,7 @@ fun SettingsScreen(
                 Text(
                     "API keys are encrypted at rest, stored locally, and never uploaded except to the provider you select above.",
                     fontSize = 12.sp,
-                    color    = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                    color    = AgentPaper.copy(alpha = 0.6f),
                 )
                 Spacer(Modifier.height(8.dp))
                 var providerExpanded by remember { mutableStateOf(false) }
@@ -222,8 +223,15 @@ private fun SettingsSection(title: String, content: @Composable ColumnScope.() -
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(title, fontSize = 13.sp, color = AgentBlue)
-        content()
+        // .background() does not set LocalContentColor, so all inner Text() calls without
+        // an explicit color would otherwise fall back to onSurface (= AgentInk, dark) and
+        // become invisible against this dark surface. Force white for the section.
+        androidx.compose.runtime.CompositionLocalProvider(
+            androidx.compose.material3.LocalContentColor provides AgentPaper
+        ) {
+            Text(title, fontSize = 13.sp, color = AgentBlue)
+            content()
+        }
     }
 }
 
@@ -232,14 +240,15 @@ private fun SettingsRow(icon: androidx.compose.ui.graphics.vector.ImageVector, l
     Surface(
         onClick = onClick,
         color   = AgentSurface2,
+        contentColor = AgentPaper,
         shape   = RoundedCornerShape(8.dp),
     ) {
         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, null, tint = AgentBlue)
             Spacer(Modifier.width(12.dp))
             Text(label, Modifier.weight(1f))
-            if (value.isNotBlank()) Text(value, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(0.5f))
-            Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurface.copy(0.4f))
+            if (value.isNotBlank()) Text(value, fontSize = 12.sp, color = AgentPaper.copy(alpha = 0.6f))
+            Icon(Icons.Default.ChevronRight, null, tint = AgentPaper.copy(alpha = 0.5f))
         }
     }
 }

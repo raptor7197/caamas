@@ -158,19 +158,31 @@ class ModelManager(
     }
 
     /**
-     * @param expectedSize When >= 0, the file size is checked first and must match exactly —
-     * this is what lets us reject a corrupt/truncated download even for models that ship
-     * with a blank [expected] SHA-256 (issue #11). Omit it only for ad-hoc hash checks where
-     * the true size isn't known (matches this function's pre-fix behavior).
+     * @param expectedSize When > 0, the file size is checked first and must match within a
+     * small tolerance — this is what lets us reject a corrupt/truncated download even for
+     * models that ship with a blank [expected] SHA-256 (issue #11). The tolerance absorbs
+     * harmless metadata-only re-publishes by upstream quantizers that shift the file by a
+     * few KB without changing weights (bartowski frequently does this). Pass -1L only for
+     * ad-hoc hash checks where the true size isn't known.
      */
     internal suspend fun verifyChecksum(file: File, expected: String, expectedSize: Long = -1L): Boolean =
         withContext(Dispatchers.IO) {
-            if (expectedSize >= 0 && file.length() != expectedSize) {
-                Log.e(TAG, "Size mismatch for ${file.name}: got ${file.length()}, expected $expectedSize")
-                return@withContext false
+            if (expectedSize > 0) {
+                val actual = file.length()
+                val delta  = kotlin.math.abs(actual - expectedSize)
+                // 2 MB tolerance — large enough to absorb upstream metadata drift,
+                // small enough that a truncated multi-GB download still fails the check.
+                val tolerance = 2L * 1024 * 1024
+                if (delta > tolerance) {
+                    Log.e(TAG, "Size mismatch for ${file.name}: got $actual, expected ~$expectedSize (Δ=$delta)")
+                    return@withContext false
+                }
+                if (delta != 0L) {
+                    Log.w(TAG, "Size within tolerance for ${file.name}: got $actual, expected $expectedSize (Δ=$delta)")
+                }
             }
             if (expected.isBlank()) {
-                Log.w(TAG, "No SHA-256 configured for ${file.name} — ${if (expectedSize >= 0) "size matched, accepting" else "skipping integrity check"} (issue #11)")
+                Log.w(TAG, "No SHA-256 configured for ${file.name} — ${if (expectedSize > 0) "size within tolerance, accepting" else "skipping integrity check"} (issue #11)")
                 return@withContext true
             }
             try {
@@ -202,8 +214,8 @@ class ModelManager(
                 name = "Llama 3.1 8B Instruct Q4_K_M",
                 filename = "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
                 downloadUrl = "https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF/resolve/main/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
-                sha256 = "",
-                sizeBytes = 4_920_000_000L,
+                sha256 = "7b064f5842bf9532c91456deda288a1b672397a54fa729aa665952863033557c",
+                sizeBytes = 4_920_739_232L,
             )
 
             val QWEN_2_5_1_5B = ModelSpec(
@@ -211,31 +223,31 @@ class ModelManager(
                 filename = "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf",
                 downloadUrl = "https://huggingface.co/bartowski/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf",
                 sha256 = "",
-                sizeBytes = 986_000_000L,
+                sizeBytes = 1_104_000_000L,
             )
 
             val GEMMA_2_2B = ModelSpec(
                 name = "Gemma 2 2B Instruct Q4_K_M",
                 filename = "gemma-2-2b-it-Q4_K_M.gguf",
                 downloadUrl = "https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q4_K_M.gguf",
-                sha256 = "",
-                sizeBytes = 1_600_000_000L,
+                sha256 = "e0aee85060f168f0f2d8473d7ea41ce2f3230c1bc1374847505ea599288a7787",
+                sizeBytes = 1_708_582_752L,
             )
 
             val WHISPER_BASE_EN = ModelSpec(
                 name = "Whisper base.en",
                 filename = "ggml-base.en.bin",
                 downloadUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin",
-                sha256 = "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
-                sizeBytes = 147_951_465L,
+                sha256 = "a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002",
+                sizeBytes = 147_964_211L,
             )
 
             val NOMIC_EMBED_TEXT = ModelSpec(
                 name = "nomic-embed-text-v1.5 Q4_K_M",
                 filename = "nomic-embed-text-v1.5.Q4_K_M.gguf",
                 downloadUrl = "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5-Q4_K_M.gguf",
-                sha256 = "",
-                sizeBytes = 84_000_000L,
+                sha256 = "d4e388894e09cf3816e8b0896d81d265b55e7a9fff9ab03fe8bf4ef5e11295ac",
+                sizeBytes = 84_106_624L,
             )
         }
     }

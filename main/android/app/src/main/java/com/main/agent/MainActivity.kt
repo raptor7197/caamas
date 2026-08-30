@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -11,19 +12,25 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -58,6 +65,8 @@ import com.main.agent.voice.WhisperSTT
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
+
+private const val TAG = "MainActivity"
 
 class MainActivity : ComponentActivity() {
 
@@ -107,16 +116,19 @@ class MainActivity : ComponentActivity() {
             AgentTheme {
                 val settings by prefs.settingsFlow.collectAsState(initial = UserPreferences.Settings())
 
-                var screen by remember { mutableStateOf<Screen>(Screen.Splash) }
+                var screen     by remember { mutableStateOf<Screen>(Screen.Splash) }
+                var retryToken by remember { mutableIntStateOf(0) }
 
                 LaunchedEffect(Unit) {
                     screen = if (!settings.onboardingDone) Screen.Onboarding else Screen.Loading
                 }
 
-                LaunchedEffect(screen) {
+                LaunchedEffect(screen, retryToken) {
                     if (screen == Screen.Loading) {
-                        loadModel(cap, settings, app)
-                        screen = Screen.Chat
+                        val ok = loadModel(cap, settings, app)
+                        if (ok) screen = Screen.Chat
+                        // On failure, stay on Loading — error is already surfaced via
+                        // modelManager.state, and a Retry button lets the user re-attempt.
                     }
                 }
 
@@ -160,16 +172,21 @@ class MainActivity : ComponentActivity() {
                         screen = Screen.Loading
                     }
                     Screen.Loading   -> {
-                        val mmState by modelManager?.state?.collectAsState() ?: mutableStateOf(ModelManager.State.Idle)
+                        val mmState by (modelManager?.state?.collectAsState()
+                            ?: remember { mutableStateOf<ModelManager.State>(ModelManager.State.Idle) })
                         LoadingScreen(
                             text = when (mmState) {
                                 is ModelManager.State.Downloading -> "Downloading model\u2026"
                                 is ModelManager.State.Verifying   -> "Verifying checksum\u2026"
                                 is ModelManager.State.Loading     -> "Loading into memory\u2026"
-                                is ModelManager.State.Error       -> "Error: ${(mmState as ModelManager.State.Error).message}"
+                                is ModelManager.State.Error       -> (mmState as ModelManager.State.Error).message
                                 else                             -> "Initializing\u2026"
                             },
-                            state = mmState
+                            state = mmState,
+                            onRetry = {
+                                modelManager = ModelManager(this@MainActivity, engine, cap)
+                                retryToken++
+                            },
                         )
                     }
                     Screen.Chat      -> ChatScreen(
@@ -193,10 +210,18 @@ class MainActivity : ComponentActivity() {
         cap:      DeviceCapability.Info,
         settings: UserPreferences.Settings,
         app:      AgentApp,
-    ) {
+    ): Boolean {
         val mm = ModelManager(this, engine, cap)
         modelManager = mm
-        mm.ensureReady()
+        val ok = mm.ensureReady()
+
+        if (!ok) {
+            // Surface the manager's last state so the Loading screen can show why we
+            // didn't proceed to Chat (download failed, checksum mismatch, native load
+            // returned 0, etc). The state's message is already user-readable.
+            Log.e(TAG, "Model load failed; staying on Loading screen")
+            return false
+        }
 
         val cloud = when (settings.cloudProvider) {
             "openai"    -> if (settings.openAIKey.isNotBlank())    OpenAIProvider(settings.openAIKey)    else null
@@ -246,6 +271,7 @@ class MainActivity : ComponentActivity() {
             whisperSTT = whisper
             voicePipeline = VoicePipeline(this, whisper, ttsEngine, lifecycleScope)
         }
+        return true
     }
 
     private fun requestDangerousPermissions() {
@@ -281,7 +307,11 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun LoadingScreen(text: String, state: ModelManager.State = ModelManager.State.Idle) {
+private fun LoadingScreen(
+    text:  String,
+    state: ModelManager.State = ModelManager.State.Idle,
+    onRetry: (() -> Unit)? = null,
+) {
     Box(
         modifier = Modifier.fillMaxSize().padding(32.dp),
         contentAlignment = Alignment.Center,
@@ -290,25 +320,69 @@ private fun LoadingScreen(text: String, state: ModelManager.State = ModelManager
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            if (state is ModelManager.State.Downloading) {
-                Text(text, style = MaterialTheme.typography.titleMedium)
-                LinearProgressIndicator(
-                    progress = state.progress,
-                    modifier = Modifier.fillMaxWidth().height(8.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                )
-                val percent = (state.progress * 100).toInt()
-                val downloadedMb = (state.progress * state.bytesTotal) / (1024 * 1024)
-                val totalMb = state.bytesTotal / (1024 * 1024)
-                Text(
-                    text = "$percent% ($downloadedMb MB / $totalMb MB)",
-                    style = MaterialTheme.typography.bodySmall
-                )
-            } else {
-                CircularProgressIndicator()
-                Text(text)
+            when (state) {
+                is ModelManager.State.Downloading -> {
+                    Text(text, style = MaterialTheme.typography.titleMedium)
+                    LinearProgressIndicator(
+                        progress = state.progress,
+                        modifier = Modifier.fillMaxWidth().height(8.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                    )
+                    val percent = (state.progress * 100).toInt()
+                    val downloadedMb = (state.progress * state.bytesTotal) / (1024 * 1024)
+                    val totalMb = state.bytesTotal / (1024 * 1024)
+                    Text(
+                        text = "$percent% ($downloadedMb MB / $totalMb MB)",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                is ModelManager.State.Error -> {
+                    ErrorBanner(message = text)
+                    if (onRetry != null) {
+                        Button(
+                            onClick = onRetry,
+                            modifier = Modifier.fillMaxWidth().height(48.dp),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                        ) {
+                            Text("Retry", fontSize = 15.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                        }
+                    }
+                }
+                else -> {
+                    CircularProgressIndicator()
+                    Text(text)
+                }
             }
+        }
+    }
+}
+
+@Composable
+private fun ErrorBanner(message: String) {
+    // Use the strong error color (dark red) with white text instead of the soft
+    // errorContainer (light pink) so a failed model load is unmistakably visible.
+    Surface(
+        color = MaterialTheme.colorScheme.error,
+        contentColor = MaterialTheme.colorScheme.onError,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+        border = androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.error),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.ErrorOutline,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onError,
+            )
+            Text(
+                text = message,
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+            )
         }
     }
 }
