@@ -11,6 +11,7 @@ import com.main.agent.agent.TOOL_EVT_SFX
 import com.main.agent.persistence.AppDatabase
 import com.main.agent.persistence.entities.MessageEntity
 import com.main.agent.persistence.entities.SessionEntity
+import com.main.agent.voice.TTSEngine
 import com.main.agent.voice.VoicePipeline
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -29,6 +30,7 @@ data class ChatUiState(
     val error:           String?             = null,
     val awaitingConfirm: ConfirmRequest?     = null,
     val voiceState:      VoicePipeline.State = VoicePipeline.State.Idle,
+    val isSpeaking:      Boolean             = false,
     val modelStats:      ModelStats?         = null,
     val selectedRoute:   Route?              = null,
     val cpuLoad:         Float               = 0f,
@@ -61,6 +63,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private var generateJob: Job? = null
     private var sessionCollectionJob: Job? = null
     private var _voicePipeline: VoicePipeline? = null
+    private var ttsEngine: TTSEngine? = null
+    @Volatile private var autoSpeak = false
 
     private var prevCpuTotal = 0L
     private var prevCpuIdle  = 0L
@@ -124,6 +128,21 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 _uiState.update { it.copy(voiceState = st) }
             }
         }
+    }
+
+    fun setTtsEngine(engine: TTSEngine) {
+        ttsEngine = engine
+    }
+
+    /** Toggle "read responses aloud". Stops any speech already in progress when turned off. */
+    fun setAutoSpeak(enabled: Boolean) {
+        autoSpeak = enabled
+        if (!enabled) stopSpeaking()
+    }
+
+    fun stopSpeaking() {
+        ttsEngine?.stop()
+        _uiState.update { it.copy(isSpeaking = false) }
     }
 
     fun loadOrCreateSession() {
@@ -229,10 +248,19 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 if (full.isNotBlank()) {
                     sessionManager.saveMessage(sessionId, "assistant", full)
                 }
+                // Flip out of "generating" before speaking so the UI shows the speaking
+                // state (and its own stop control) instead of still looking like it's streaming.
+                _uiState.update { it.copy(isGenerating = false, streamingText = "", activeToolCalls = emptyList()) }
+                if (autoSpeak && full.isNotBlank()) {
+                    ttsEngine?.let { tts ->
+                        _uiState.update { it.copy(isSpeaking = true) }
+                        tts.speak(full)
+                    }
+                }
             } catch (e: Exception) {
                 _uiState.update { it.copy(error = "Generation error: ${e.message}") }
             } finally {
-                _uiState.update { it.copy(isGenerating = false, streamingText = "", activeToolCalls = emptyList()) }
+                _uiState.update { it.copy(isGenerating = false, streamingText = "", activeToolCalls = emptyList(), isSpeaking = false) }
             }
         }
     }
@@ -240,7 +268,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     fun cancelGeneration() {
         generateJob?.cancel()
         _voicePipeline?.cancel()
-        _uiState.update { it.copy(isGenerating = false, streamingText = "", activeToolCalls = emptyList()) }
+        ttsEngine?.stop()
+        _uiState.update { it.copy(isGenerating = false, streamingText = "", activeToolCalls = emptyList(), isSpeaking = false) }
     }
 
     fun startVoiceListening() {

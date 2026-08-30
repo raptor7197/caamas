@@ -42,6 +42,9 @@ class TTSEngine(context: Context) {
             override fun onStart(utteranceId: String?) {}
             override fun onDone(utteranceId: String?)  { if (utteranceId == id && cont.isActive) cont.resume(Unit) }
             override fun onError(utteranceId: String?) { if (utteranceId == id && cont.isActive) cont.resume(Unit) }
+            // stop() (user-initiated interrupt) fires onStop, not onDone/onError — without this,
+            // interrupting speech would leave the suspend call hung forever.
+            override fun onStop(utteranceId: String?, interrupted: Boolean) { if (utteranceId == id && cont.isActive) cont.resume(Unit) }
         })
 
         tts!!.speak(text, TextToSpeech.QUEUE_FLUSH, null, id)

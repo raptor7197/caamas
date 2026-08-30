@@ -181,6 +181,22 @@ fun SettingsScreen(
                 }
             }
 
+            // ── Voice ─────────────────────────────────────────────────────────
+            SettingsSection("Voice") {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Read responses aloud", fontSize = 13.sp)
+                    Switch(
+                        checked = settings.autoSpeak,
+                        onCheckedChange = { scope.launch { prefs.setAutoSpeak(it) } },
+                        colors = SwitchDefaults.colors(checkedThumbColor = AgentBlue, checkedTrackColor = AgentBlue.copy(alpha = 0.5f)),
+                    )
+                }
+            }
+
             // ── Overlay ───────────────────────────────────────────────────────
             SettingsSection("Overlay") {
                 SettingsRow(

@@ -124,12 +124,17 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(screen) {
                     chatVm.setStatsActive(screen == Screen.Chat)
                 }
-                LaunchedEffect(agentCore, voicePipeline) {
+                LaunchedEffect(agentCore, voicePipeline, tts) {
                     if (agentCore != null) {
                         chatVm.agentCore = agentCore
                         chatVm.loadOrCreateSession()
                     }
                     voicePipeline?.let { chatVm.setVoicePipeline(it) }
+                    tts?.let { chatVm.setTtsEngine(it) }
+                }
+
+                LaunchedEffect(settings.autoSpeak) {
+                    chatVm.setAutoSpeak(settings.autoSpeak)
                 }
 
                 // Re-evaluate cloud provider when returning from Settings
@@ -229,14 +234,17 @@ class MainActivity : ComponentActivity() {
 
         agentCore = AgentCore(this, engine, cap, registry, router, loop)
 
+        // TTS wraps Android's built-in engine — no model file to download, so it's built
+        // unconditionally rather than gated on the (unrelated) Whisper STT model existing.
+        val ttsEngine = TTSEngine(this)
+        tts = ttsEngine
+
         val whisperFile = mm.modelsDir.resolve(ModelManager.ModelSpec.WHISPER_BASE_EN.filename)
         if (whisperFile.exists()) {
             val whisper = WhisperSTT(this)
             whisper.loadModel(whisperFile.absolutePath)
             whisperSTT = whisper
-            val ttsEngine = TTSEngine(this)
-            tts = ttsEngine
-            voicePipeline = VoicePipeline(this, whisper, ttsEngine, agentCore!!, lifecycleScope)
+            voicePipeline = VoicePipeline(this, whisper, ttsEngine, lifecycleScope)
         }
     }
 

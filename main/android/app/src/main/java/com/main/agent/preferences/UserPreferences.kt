@@ -24,6 +24,7 @@ class UserPreferences(context: Context) {
         val chunkSize:       Int    = 512,
         val chunkOverlapPct: Int    = 10,
         val onboardingDone:  Boolean = false,
+        val autoSpeak:       Boolean = false,
     )
 
     // API keys are encrypted at rest (Android Keystore AES-GCM) — DataStore's backing file is
@@ -40,6 +41,7 @@ class UserPreferences(context: Context) {
             chunkSize       = p[Keys.CHUNK_SIZE]     ?: 512,
             chunkOverlapPct = p[Keys.CHUNK_OVERLAP]  ?: 10,
             onboardingDone  = p[Keys.ONBOARDING]     ?: false,
+            autoSpeak       = p[Keys.AUTO_SPEAK]     ?: false,
         )
     }
 
@@ -53,6 +55,7 @@ class UserPreferences(context: Context) {
     suspend fun setChunkSize(n: Int)             = ds.edit { it[Keys.CHUNK_SIZE]     = n }
     suspend fun setChunkOverlap(n: Int)          = ds.edit { it[Keys.CHUNK_OVERLAP]  = n }
     suspend fun setOnboardingDone(done: Boolean) = ds.edit { it[Keys.ONBOARDING]     = done }
+    suspend fun setAutoSpeak(enabled: Boolean)   = ds.edit { it[Keys.AUTO_SPEAK]     = enabled }
 
     private object Keys {
         val FOLDER_URI     = stringPreferencesKey("agent_folder_uri")
@@ -65,5 +68,6 @@ class UserPreferences(context: Context) {
         val CHUNK_SIZE     = intPreferencesKey("chunk_size")
         val CHUNK_OVERLAP  = intPreferencesKey("chunk_overlap")
         val ONBOARDING     = booleanPreferencesKey("onboarding_done")
+        val AUTO_SPEAK     = booleanPreferencesKey("auto_speak")
     }
 }

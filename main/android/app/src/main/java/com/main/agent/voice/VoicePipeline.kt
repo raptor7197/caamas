@@ -8,7 +8,6 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.util.Log
 import androidx.core.content.ContextCompat
-import com.main.agent.agent.AgentCore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -28,14 +27,11 @@ class VoicePipeline(
     private val context:   Context,
     private val stt:      WhisperSTT,
     private val tts:       TTSEngine,
-    private val agentCore: AgentCore,
     private val scope:     CoroutineScope,
 ) {
     sealed class State {
         object Idle       : State()
         object Listening  : State()
-        object Processing : State()
-        data class Speaking(val text: String) : State()
         data class Error(val message: String) : State()
     }
 
@@ -130,34 +126,6 @@ class VoicePipeline(
         val text = stt.transcribe(pcmFloat, SAMPLE_RATE)
         Log.d(TAG, "Transcription: ${text.take(80)}")
         return text.ifBlank { null }
-    }
-
-    fun processText(
-        text:    String,
-        history: List<Pair<String, String>> = emptyList(),
-        onToken: (String) -> Unit,
-        onDone:  () -> Unit,
-    ) {
-        scope.launch(Dispatchers.Main) {
-            _state.value = State.Processing
-            val sb = StringBuilder()
-            try {
-                agentCore.respond(text, history).collect { token ->
-                    sb.append(token)
-                    onToken(token)
-                }
-                val response = sb.toString()
-                _state.value = State.Speaking(response)
-                tts.speak(response)
-                onDone()
-            } catch (e: Exception) {
-                Log.e(TAG, "Pipeline error: ${e.message}", e)
-                _state.value = State.Error(e.message ?: "Unknown error")
-                onDone()
-            } finally {
-                _state.value = State.Idle
-            }
-        }
     }
 
     fun cancel() {

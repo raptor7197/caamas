@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -251,7 +252,7 @@ fun ChatScreen(
                         maxLines         = 5,
                         keyboardOptions  = KeyboardOptions(imeAction = ImeAction.Send),
                         keyboardActions  = KeyboardActions(onSend = {
-                            if (inputText.isNotBlank() && !uiState.isGenerating) {
+                            if (inputText.isNotBlank() && !uiState.isGenerating && !uiState.isSpeaking) {
                                 viewModel.sendMessage(inputText.trim())
                                 inputText = ""
                             }
@@ -269,7 +270,7 @@ fun ChatScreen(
                             unfocusedPlaceholderColor = AgentInkSoft.copy(alpha = 0.55f),
                         ),
                         shape = RoundedCornerShape(22.dp),
-                        enabled = !uiState.isGenerating,
+                        enabled = !uiState.isGenerating && !uiState.isSpeaking,
                     )
                     Spacer(Modifier.width(8.dp))
                     if (uiState.isGenerating) {
@@ -282,15 +283,26 @@ fun ChatScreen(
                         ) {
                             Icon(Icons.Default.Stop, "Stop")
                         }
+                    } else if (uiState.isSpeaking) {
+                        FilledIconButton(
+                            onClick = { viewModel.stopSpeaking() },
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = AgentPaper,
+                                contentColor = AgentPeachDeep,
+                            ),
+                        ) {
+                            Icon(Icons.Default.VolumeUp, "Stop speaking")
+                        }
                     } else {
                         val isListening = uiState.voiceState is VoicePipeline.State.Listening
                         FilledIconButton(
                             onClick = {
                                 if (isListening) {
                                     coroutineScope.launch {
-                                        viewModel.stopVoiceListening()?.let { transcribed ->
-                                            inputText = transcribed
-                                        }
+                                        viewModel.stopVoiceListening()
+                                            ?.trim()
+                                            ?.takeIf { it.isNotBlank() }
+                                            ?.let { transcribed -> viewModel.sendMessage(transcribed) }
                                     }
                                 } else {
                                     viewModel.startVoiceListening()
